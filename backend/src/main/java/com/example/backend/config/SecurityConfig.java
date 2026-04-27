@@ -2,6 +2,7 @@ package com.example.backend.config;
 
 import java.io.IOException;
 import java.util.List;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.beans.factory.annotation.Value;
@@ -34,16 +35,16 @@ public class SecurityConfig {
 
     private final AuthService authService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
-    private final OAuth2AuthorizedClientService authorizedClientService;
+    private final ObjectProvider<OAuth2AuthorizedClientService> authorizedClientServiceProvider;
 
     public SecurityConfig(
             AuthService authService,
             JwtAuthenticationFilter jwtAuthenticationFilter,
-            OAuth2AuthorizedClientService authorizedClientService
+            ObjectProvider<OAuth2AuthorizedClientService> authorizedClientServiceProvider
     ) {
         this.authService = authService;
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
-        this.authorizedClientService = authorizedClientService;
+        this.authorizedClientServiceProvider = authorizedClientServiceProvider;
     }
 
     @Bean
@@ -61,38 +62,44 @@ public class SecurityConfig {
                         .requestMatchers("/api/repositories/**").permitAll()
                         .requestMatchers("/dashboard").permitAll()
                         .anyRequest().permitAll())
-                .oauth2Login(oauth2 -> oauth2
-                        .loginPage("/login")
-                        .successHandler((request, response, authentication) -> {
-                            OAuth2User oauth2User = (OAuth2User) authentication.getPrincipal();
-                            OAuth2AuthenticationToken oauth2Authentication =
-                                    (OAuth2AuthenticationToken) authentication;
-                            OAuth2AuthorizedClient authorizedClient = authorizedClientService.loadAuthorizedClient(
-                                    oauth2Authentication.getAuthorizedClientRegistrationId(),
-                                    oauth2Authentication.getName()
-                            );
-                            String oauthToken = authorizedClient != null && authorizedClient.getAccessToken() != null
-                                    ? authorizedClient.getAccessToken().getTokenValue()
-                                    : null;
-                            String email = oauth2User.getAttribute("email");
-                            String name = oauth2User.getAttribute("name");
-                            if (email == null) {
-                                email = oauth2User.getAttribute("login");
-                            }
-                            User user = authService.upsertOAuthUser(
-                                    email,
-                                    name,
-                                    request.getRequestURI().contains("google") ? "GOOGLE" : "GITHUB",
-                                    oauthToken
-                            );
-                            AuthResponse authResponse = authService.buildAuthResponse(user);
-                            sendRedirect(response, frontendUrl + "/oauth2/callback?token=" + authResponse.getToken());
-                        })
-                        .failureHandler((request, response, exception) ->
-                                sendRedirect(response, frontendUrl + "/login?error")))
-                .oauth2Client(Customizer.withDefaults())
                 .logout(logout -> logout.logoutSuccessUrl("/login"))
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+
+        OAuth2AuthorizedClientService authorizedClientService =
+                authorizedClientServiceProvider.getIfAvailable();
+        if (authorizedClientService != null) {
+            http
+                    .oauth2Login(oauth2 -> oauth2
+                            .loginPage("/login")
+                            .successHandler((request, response, authentication) -> {
+                                OAuth2User oauth2User = (OAuth2User) authentication.getPrincipal();
+                                OAuth2AuthenticationToken oauth2Authentication =
+                                        (OAuth2AuthenticationToken) authentication;
+                                OAuth2AuthorizedClient authorizedClient = authorizedClientService.loadAuthorizedClient(
+                                        oauth2Authentication.getAuthorizedClientRegistrationId(),
+                                        oauth2Authentication.getName()
+                                );
+                                String oauthToken = authorizedClient != null && authorizedClient.getAccessToken() != null
+                                        ? authorizedClient.getAccessToken().getTokenValue()
+                                        : null;
+                                String email = oauth2User.getAttribute("email");
+                                String name = oauth2User.getAttribute("name");
+                                if (email == null) {
+                                    email = oauth2User.getAttribute("login");
+                                }
+                                User user = authService.upsertOAuthUser(
+                                        email,
+                                        name,
+                                        request.getRequestURI().contains("google") ? "GOOGLE" : "GITHUB",
+                                        oauthToken
+                                );
+                                AuthResponse authResponse = authService.buildAuthResponse(user);
+                                sendRedirect(response, frontendUrl + "/oauth2/callback?token=" + authResponse.getToken());
+                            })
+                            .failureHandler((request, response, exception) ->
+                                    sendRedirect(response, frontendUrl + "/login?error")))
+                    .oauth2Client(Customizer.withDefaults());
+        }
 
         return http.build();
     }
