@@ -1,0 +1,6 @@
+.env
+.env.*
+!.env.example
+*.log
+
+backend/src/main/resources/application-local.properties

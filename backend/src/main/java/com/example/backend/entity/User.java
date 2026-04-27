@@ -39,8 +39,21 @@ public class User {
     @Column(nullable = false)
     private String name;
 
+    @Column(nullable = false, unique = true)
+    private String username;
+
+    @Column(length = 255)
+    private String passwordHash;
+
     @Column(length = 2048)
     private String githubOAuthToken;
+
+    @Column(length = 2048)
+    private String googleOAuthToken;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private String provider = "LOCAL";
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;

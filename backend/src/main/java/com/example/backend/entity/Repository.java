@@ -33,14 +33,23 @@ public class Repository {
     @Column(nullable = false)
     private String name;
 
-    @Column(nullable = false)
     private String githubUrl;
+
+    @Column(length = 1000)
+    private String description;
 
     private String language;
 
+    @Column(length = 1000)
+    private String techStack;
+
+    private Integer fileCount;
+
+    private Long linesOfCode;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private Status status;
+    private RepositoryStatus status;
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
@@ -60,10 +69,4 @@ public class Repository {
         updatedAt = Instant.now();
     }
 
-    public enum Status {
-        PENDING,
-        ANALYZING,
-        READY,
-        ERROR
-    }
 }
