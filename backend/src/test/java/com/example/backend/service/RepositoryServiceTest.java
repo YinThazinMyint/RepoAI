@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -79,17 +80,22 @@ class RepositoryServiceTest {
                 """))
                 .when(repositoryService)
                 .fetchGithubRepositoryMetadata(repositoryDTO.getGithubUrl());
+        doReturn(createSampleZipBytes())
+                .when(repositoryService)
+                .fetchGithubRepositoryArchive(repositoryDTO.getGithubUrl(), "main", null);
 
         repositoryService.uploadRepository(repositoryDTO);
 
-        verify(repositoryRepository).save(repositoryCaptor.capture());
-        Repository savedRepository = repositoryCaptor.getValue();
+        verify(repositoryRepository, times(2)).save(repositoryCaptor.capture());
+        Repository savedRepository = repositoryCaptor.getAllValues().get(1);
 
         assertEquals("sample-repo", savedRepository.getName());
         assertEquals("https://github.com/openai/sample-repo", savedRepository.getGithubUrl());
         assertEquals("Java", savedRepository.getLanguage());
         assertEquals("spring-boot, postgresql", savedRepository.getTechStack());
         assertEquals(RepositoryStatus.READY, savedRepository.getStatus());
+        assertEquals(2, savedRepository.getFileCount());
+        assertTrue(savedRepository.getLinesOfCode() > 0);
     }
 
     @Test
@@ -116,6 +122,10 @@ class RepositoryServiceTest {
     }
 
     private String createSampleZipBase64() throws IOException {
+        return Base64.getEncoder().encodeToString(createSampleZipBytes());
+    }
+
+    private byte[] createSampleZipBytes() throws IOException {
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         try (ZipOutputStream zipOutputStream = new ZipOutputStream(outputStream, StandardCharsets.UTF_8)) {
             addZipEntry(zipOutputStream, "sample-zip-repo/pom.xml", """
@@ -128,7 +138,7 @@ class RepositoryServiceTest {
                     """);
         }
 
-        return Base64.getEncoder().encodeToString(outputStream.toByteArray());
+        return outputStream.toByteArray();
     }
 
     private void addZipEntry(ZipOutputStream zipOutputStream, String name, String content) throws IOException {

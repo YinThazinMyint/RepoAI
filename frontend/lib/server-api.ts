@@ -1,4 +1,4 @@
-import { mockRepositories, mockRepositoryDetail, mockStats, mockUser } from "./mock-data";
+import { mockRepositoryDetail, mockUser } from "./mock-data";
 import type {
   AIMessage,
   DashboardStats,
@@ -41,8 +41,6 @@ async function requestJson<T>(path: string, token?: string): Promise<T> {
 
 export const frontendFallbacks = {
   repositoryDetail: mockRepositoryDetail,
-  repositories: mockRepositories,
-  stats: mockStats,
   user: mockUser,
 };
 
@@ -58,7 +56,7 @@ export async function fetchDashboardStats(token?: string): Promise<DashboardStat
   try {
     return await requestJson<DashboardStats>("/dashboard/stats", token);
   } catch {
-    return frontendFallbacks.stats;
+    return { diagrams: 0, docs: 0, questions: 0, repositories: 0 };
   }
 }
 
@@ -66,7 +64,7 @@ export async function fetchRepositories(token?: string): Promise<RepositorySumma
   try {
     return await requestJson<RepositorySummary[]>("/repositories", token);
   } catch {
-    return frontendFallbacks.repositories;
+    return [];
   }
 }
 
@@ -74,7 +72,7 @@ export async function fetchDocumentation(token?: string): Promise<RepoDocument[]
   try {
     return await requestJson<RepoDocument[]>("/dashboard/documentation", token);
   } catch {
-    return mockRepositoryDetail.docs;
+    return [];
   }
 }
 
@@ -82,7 +80,7 @@ export async function fetchRecentQuestions(token?: string): Promise<AIMessage[]>
   try {
     return await requestJson<AIMessage[]>("/dashboard/recent-questions", token);
   } catch {
-    return mockRepositoryDetail.questions;
+    return [];
   }
 }
 

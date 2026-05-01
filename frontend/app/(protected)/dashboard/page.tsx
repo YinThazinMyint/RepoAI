@@ -1,7 +1,11 @@
+"use client";
+
 import Link from "next/link";
 import { DashboardAddRepositoryButton } from "@/components/dashboard-add-repository-button";
-import { fetchDashboardStats, fetchRecentQuestions, fetchRepositories } from "@/lib/server-api";
+import { axiosInstance } from "@/lib/api";
+import type { AIMessage, DashboardStats, RepositorySummary } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
+import { useEffect, useState } from "react";
 
 const statCards = [
   { key: "repositories", label: "Repositories" },
@@ -44,12 +48,35 @@ const formatRelativeTime = (value?: string) => {
   return relativeTimeFormatter.format(seconds, "second");
 };
 
-export default async function DashboardPage() {
-  const [stats, repositories, recentQuestions] = await Promise.all([
-    fetchDashboardStats(),
-    fetchRepositories(),
-    fetchRecentQuestions(),
-  ]);
+const emptyStats: DashboardStats = {
+  diagrams: 0,
+  docs: 0,
+  questions: 0,
+  repositories: 0,
+};
+
+export default function DashboardPage() {
+  const [stats, setStats] = useState<DashboardStats>(emptyStats);
+  const [repositories, setRepositories] = useState<RepositorySummary[]>([]);
+  const [recentQuestions, setRecentQuestions] = useState<AIMessage[]>([]);
+
+  useEffect(() => {
+    void Promise.all([
+      axiosInstance.get<DashboardStats>("/dashboard/stats"),
+      axiosInstance.get<RepositorySummary[]>("/repositories"),
+      axiosInstance.get<AIMessage[]>("/dashboard/recent-questions"),
+    ])
+      .then(([statsResponse, repositoriesResponse, questionsResponse]) => {
+        setStats(statsResponse.data);
+        setRepositories(repositoriesResponse.data);
+        setRecentQuestions(questionsResponse.data);
+      })
+      .catch(() => {
+        setStats(emptyStats);
+        setRepositories([]);
+        setRecentQuestions([]);
+      });
+  }, []);
 
   return (
     <div className="space-y-6 text-black">

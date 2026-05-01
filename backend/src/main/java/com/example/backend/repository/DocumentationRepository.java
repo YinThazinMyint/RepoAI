@@ -8,5 +8,9 @@ public interface DocumentationRepository extends JpaRepository<Documentation, Lo
 
     List<Documentation> findAllByOrderByUpdatedAtDesc();
 
+    List<Documentation> findByRepositoryIdInOrderByUpdatedAtDesc(List<Long> repositoryIds);
+
     List<Documentation> findByRepositoryIdOrderByUpdatedAtDesc(Long repositoryId);
+
+    long countByRepositoryIdIn(List<Long> repositoryIds);
 }

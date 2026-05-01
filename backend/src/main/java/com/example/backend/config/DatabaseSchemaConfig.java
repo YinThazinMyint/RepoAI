@@ -22,8 +22,19 @@ public class DatabaseSchemaConfig {
             jdbcTemplate.execute("ALTER TABLE repositories ADD COLUMN IF NOT EXISTS description varchar(1000)");
             jdbcTemplate.execute("ALTER TABLE repositories ADD COLUMN IF NOT EXISTS file_count integer");
             jdbcTemplate.execute("ALTER TABLE repositories ADD COLUMN IF NOT EXISTS lines_of_code bigint");
+            jdbcTemplate.execute("ALTER TABLE repositories ADD COLUMN IF NOT EXISTS owner_user_id bigint");
+            markUnscannedReadyRepositoriesAsError();
             configureVectorStorage();
         };
+    }
+
+    private void markUnscannedReadyRepositoriesAsError() {
+        jdbcTemplate.execute("""
+                UPDATE repositories
+                SET status = 'ERROR'
+                WHERE status = 'READY'
+                  AND (file_count IS NULL OR lines_of_code IS NULL)
+                """);
     }
 
     private void configureVectorStorage() {

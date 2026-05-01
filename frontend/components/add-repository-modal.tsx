@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Github, Upload, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/context/auth-context";
 import { axiosInstance } from "@/lib/api";
 import type { RepositorySummary } from "@/lib/types";
 
@@ -15,10 +16,15 @@ type AddRepositoryModalProps = {
 };
 
 type UploadTab = "github" | "zip";
+type RepositoryVisibility = "private" | "public";
 
 export function AddRepositoryModal({ onClose, open }: AddRepositoryModalProps) {
   const router = useRouter();
+  const { user } = useAuth();
+  const backendBaseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080/api")
+    .replace(/\/api$/, "");
   const [tab, setTab] = useState<UploadTab>("github");
+  const [repositoryVisibility, setRepositoryVisibility] = useState<RepositoryVisibility>("public");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [githubUrl, setGithubUrl] = useState("");
@@ -47,6 +53,11 @@ export function AddRepositoryModal({ onClose, open }: AddRepositoryModalProps) {
       return;
     }
 
+    if (tab === "github" && repositoryVisibility === "private" && !user?.githubConnected) {
+      setError("Private repositories require GitHub connection.");
+      return;
+    }
+
     if (tab === "github" && !/^https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/?$/.test(resolvedGithubUrl.replace(/\.git$/, ""))) {
       setError("Enter a valid GitHub repository URL, for example https://github.com/user/repo.");
       return;
@@ -71,6 +82,7 @@ export function AddRepositoryModal({ onClose, open }: AddRepositoryModalProps) {
       formData.append("description", description);
       if (tab === "github") {
         formData.append("githubUrl", resolvedGithubUrl);
+        formData.append("repositoryVisibility", repositoryVisibility);
       }
       if (tab === "zip" && zipFile) {
         formData.append("zipFile", zipFile);
@@ -95,6 +107,16 @@ export function AddRepositoryModal({ onClose, open }: AddRepositoryModalProps) {
       setIsSubmitting(false);
     }
   };
+
+  const connectGithub = () => {
+    window.location.href = `${backendBaseUrl}/oauth2/authorization/github`;
+  };
+
+  const shouldShowGithubConnect =
+    repositoryVisibility === "private"
+    && (error?.toLowerCase().includes("private")
+      || error?.toLowerCase().includes("connect github")
+      || error?.toLowerCase().includes("github connection"));
 
   return (
     <AnimatePresence>
@@ -123,7 +145,7 @@ export function AddRepositoryModal({ onClose, open }: AddRepositoryModalProps) {
                   <div>
                     <h2 className="text-lg font-semibold tracking-tight text-black">Add Repository</h2>
                     <p className="mt-1 text-[12px] text-[#667085]">
-                      Connect a GitHub repo or upload a ZIP file for AI analysis.
+                      Paste a public GitHub URL, connect GitHub for private repos, or upload a ZIP.
                     </p>
                   </div>
                   <button
@@ -186,6 +208,51 @@ export function AddRepositoryModal({ onClose, open }: AddRepositoryModalProps) {
                   {tab === "github" ? (
                     <div className="space-y-2">
                       <label className="text-[13px] font-medium text-black">GitHub URL</label>
+                      <p className="text-[12px] leading-5 text-[#667085]">
+                        Choose public to scan by URL only. Choose private when the repo needs GitHub access.
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRepositoryVisibility("public");
+                            setError(null);
+                          }}
+                          className={`rounded-lg border px-3 py-2 text-[12px] font-semibold transition ${
+                            repositoryVisibility === "public"
+                              ? "border-[#22b8a9] bg-white text-black"
+                              : "border-[#d2d7de] bg-[#eef0f3] text-[#667085]"
+                          }`}
+                        >
+                          Public URL
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRepositoryVisibility("private");
+                            setError(null);
+                          }}
+                          className={`rounded-lg border px-3 py-2 text-[12px] font-semibold transition ${
+                            repositoryVisibility === "private"
+                              ? "border-[#22b8a9] bg-white text-black"
+                              : "border-[#d2d7de] bg-[#eef0f3] text-[#667085]"
+                          }`}
+                        >
+                          Private Repo
+                        </button>
+                      </div>
+                      {repositoryVisibility === "private" && !user?.githubConnected ? (
+                        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
+                          Private import needs GitHub connection.
+                          <button
+                            type="button"
+                            onClick={connectGithub}
+                            className="ml-2 font-semibold underline"
+                          >
+                            Connect GitHub
+                          </button>
+                        </div>
+                      ) : null}
                       <input
                         placeholder="https://github.com/user/repo"
                         value={githubUrl}
@@ -213,8 +280,17 @@ export function AddRepositoryModal({ onClose, open }: AddRepositoryModalProps) {
                 </div>
 
                 {error ? (
-                  <div className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    {error}
+                  <div className="space-y-3 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    <p>{error}</p>
+                    {shouldShowGithubConnect ? (
+                      <button
+                        type="button"
+                        onClick={connectGithub}
+                        className="inline-flex rounded-lg bg-black px-3 py-2 text-xs font-semibold text-white transition hover:bg-black/80"
+                      >
+                        Connect GitHub
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
 

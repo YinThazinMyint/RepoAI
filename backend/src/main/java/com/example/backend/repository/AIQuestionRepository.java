@@ -8,5 +8,9 @@ public interface AIQuestionRepository extends JpaRepository<AIQuestion, Long> {
 
     List<AIQuestion> findTop10ByOrderByRespondedAtDesc();
 
+    List<AIQuestion> findTop10ByRepositoryIdInOrderByRespondedAtDesc(List<Long> repositoryIds);
+
     List<AIQuestion> findByRepositoryIdOrderByRespondedAtDesc(Long repositoryId);
+
+    long countByRepositoryIdIn(List<Long> repositoryIds);
 }

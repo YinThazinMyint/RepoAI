@@ -7,7 +7,7 @@ import { useEffect } from "react";
 import { axiosInstance } from "@/lib/api";
 import { AxiosError } from "axios";
 import type { RepoDocument, RepositoryDetail, RepositorySummary } from "@/lib/types";
-import { downloadTextFile, formatDate } from "@/lib/utils";
+import { downloadTextFile, formatDate, safeFilename } from "@/lib/utils";
 
 type DocumentationWorkspaceProps = {
   documents: RepoDocument[];
@@ -123,7 +123,11 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
     }
 
     if (exportFormat === "word") {
-      downloadTextFile(selectedDoc.content, `${selectedDoc.title}.doc`);
+      downloadTextFile(
+        selectedDoc.content,
+        `${safeFilename(selectedDoc.title, "documentation")}.doc`,
+        "application/msword;charset=utf-8",
+      );
       return;
     }
 

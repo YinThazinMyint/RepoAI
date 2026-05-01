@@ -43,6 +43,8 @@ public class Repository {
     @Column(length = 1000)
     private String techStack;
 
+    private Long ownerUserId;
+
     private Integer fileCount;
 
     private Long linesOfCode;

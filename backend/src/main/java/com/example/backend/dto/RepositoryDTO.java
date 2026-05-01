@@ -19,6 +19,8 @@ public class RepositoryDTO {
     private String description;
     private String language;
     private String techStack;
+    private String repositoryVisibility;
     private String questionText;
     private String documentationType;
+    private String diagramType;
 }

@@ -18,8 +18,8 @@ import { MermaidDiagram } from "@/components/mermaid-diagram";
 import { StatusBadge } from "@/components/status-badge";
 import { axiosInstance } from "@/lib/api";
 import { AxiosError } from "axios";
-import type { AIMessage, RepoDocument, RepositoryDetail } from "@/lib/types";
-import { downloadTextFile, formatDate } from "@/lib/utils";
+import type { AIMessage, RepoDiagram, RepoDocument, RepositoryDetail } from "@/lib/types";
+import { downloadTextFile, formatDate, safeFilename } from "@/lib/utils";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 
@@ -139,7 +139,7 @@ export default function RepositoryDetailPage() {
     }
 
     if (!["Project Overview", "API Documentation", "Module Docs"].includes(title)) {
-      setActiveTab("diagrams");
+      await generateDiagram(title);
       return;
     }
 
@@ -169,6 +169,160 @@ export default function RepositoryDetailPage() {
     } finally {
       setIsGeneratingDoc(false);
     }
+  };
+
+  const generateDiagram = async (title: string) => {
+    if (!detail) {
+      return;
+    }
+
+    setIsGeneratingDoc(true);
+    setErrorMessage(null);
+    try {
+      const response = await axiosInstance.post<RepoDiagram>(
+        `/repositories/${repoId}/diagrams`,
+        { diagramType: title },
+      );
+      setDetail((current) =>
+        current
+          ? {
+              ...current,
+              diagrams: [response.data, ...current.diagrams],
+            }
+          : current,
+      );
+      setActiveTab("diagrams");
+    } catch (error) {
+      const apiMessage =
+        error instanceof AxiosError && typeof error.response?.data?.message === "string"
+          ? error.response.data.message
+          : null;
+      setErrorMessage(apiMessage ?? `${title} could not be generated.`);
+    } finally {
+      setIsGeneratingDoc(false);
+    }
+  };
+
+  const escapeHtml = (value: string) =>
+    value
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;");
+
+  const downloadDocumentationAsWord = (doc: RepoDocument) => {
+    downloadTextFile(
+      doc.content,
+      `${safeFilename(doc.title, "documentation")}.doc`,
+      "application/msword;charset=utf-8",
+    );
+  };
+
+  const downloadDocumentationAsPdf = (doc: RepoDocument) => {
+    const printWindow = window.open("", "_blank", "width=900,height=700");
+    if (!printWindow) {
+      return;
+    }
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>${escapeHtml(doc.title)}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 32px; color: #111; }
+            h1 { margin-bottom: 16px; }
+            pre { white-space: pre-wrap; line-height: 1.55; font-size: 14px; }
+          </style>
+        </head>
+        <body>
+          <h1>${escapeHtml(doc.title)}</h1>
+          <pre>${escapeHtml(doc.content)}</pre>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  };
+
+  const getDiagramSvgMarkup = (diagramId: number) => {
+    const svg = document.getElementById(`diagram-preview-${diagramId}`)?.querySelector("svg");
+    if (!svg) {
+      return null;
+    }
+    return {
+      bounds: svg.getBoundingClientRect(),
+      markup: new XMLSerializer().serializeToString(svg),
+    };
+  };
+
+  const downloadDiagramAsPng = (diagram: RepoDiagram) => {
+    const svg = getDiagramSvgMarkup(diagram.id);
+    if (!svg) {
+      return;
+    }
+
+    const width = Math.max(Math.round(svg.bounds.width || 1200), 600);
+    const height = Math.max(Math.round(svg.bounds.height || 800), 400);
+    const blob = new Blob([svg.markup], { type: "image/svg+xml;charset=utf-8" });
+    const blobUrl = URL.createObjectURL(blob);
+    const image = new Image();
+
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = width * 2;
+      canvas.height = height * 2;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        URL.revokeObjectURL(blobUrl);
+        return;
+      }
+
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.scale(2, 2);
+      context.drawImage(image, 0, 0, width, height);
+
+      const anchor = document.createElement("a");
+      anchor.href = canvas.toDataURL("image/png");
+      anchor.download = `${safeFilename(diagram.title, "diagram")}.png`;
+      anchor.click();
+      URL.revokeObjectURL(blobUrl);
+    };
+
+    image.src = blobUrl;
+  };
+
+  const downloadDiagramAsPdf = (diagram: RepoDiagram) => {
+    const svg = getDiagramSvgMarkup(diagram.id);
+    if (!svg) {
+      return;
+    }
+
+    const printWindow = window.open("", "_blank", "width=1000,height=800");
+    if (!printWindow) {
+      return;
+    }
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>${escapeHtml(diagram.title)}</title>
+          <style>
+            body { margin: 24px; font-family: Arial, sans-serif; color: #111; }
+            h1 { margin-bottom: 16px; font-size: 20px; }
+            .diagram { border: 1px solid #ccc; padding: 12px; }
+            svg { width: 100%; height: auto; }
+          </style>
+        </head>
+        <body>
+          <h1>${escapeHtml(diagram.title)}</h1>
+          <div class="diagram">${svg.markup}</div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
   };
 
   if (isLoading) {
@@ -383,18 +537,26 @@ export default function RepositoryDetailPage() {
                   <h3 className="text-xl font-semibold text-slate-50">
                     {selectedDoc?.title ?? "Documentation"}
                   </h3>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      downloadTextFile(
-                        selectedDoc?.content ?? "",
-                        `${selectedDoc?.title ?? "documentation"}.doc`,
-                      )
-                    }
-                    className="rounded-xl bg-[#0d9488] px-4 py-2 text-sm font-semibold text-white"
-                  >
-                    Download .doc
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedDoc ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => downloadDocumentationAsWord(selectedDoc)}
+                          className="rounded-xl bg-[#0d9488] px-4 py-2 text-sm font-semibold text-white"
+                        >
+                          Word .doc
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => downloadDocumentationAsPdf(selectedDoc)}
+                          className="rounded-xl border border-[#2a3144] px-4 py-2 text-sm font-semibold text-slate-100"
+                        >
+                          PDF
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
                 </div>
                 <div className="markdown-body max-w-none text-[#cbd5e1]">
                   <ReactMarkdown>{selectedDoc?.content ?? ""}</ReactMarkdown>
@@ -422,15 +584,40 @@ export default function RepositoryDetailPage() {
                           Updated {formatDate(diagram.updatedAt)}
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => downloadTextFile(diagram.mermaidCode, `${diagram.title}.mmd`)}
-                        className="rounded-xl bg-[#0d9488] px-4 py-2 text-sm font-semibold text-white"
-                      >
-                        Download
-                      </button>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            downloadTextFile(
+                              diagram.mermaidCode,
+                              `${safeFilename(diagram.title, "diagram")}.mmd`,
+                              "text/plain;charset=utf-8",
+                            )
+                          }
+                          className="rounded-xl bg-[#0d9488] px-4 py-2 text-sm font-semibold text-white"
+                        >
+                          MMD
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => downloadDiagramAsPng(diagram)}
+                          className="rounded-xl border border-[#2a3144] px-4 py-2 text-sm font-semibold text-slate-100"
+                        >
+                          PNG
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => downloadDiagramAsPdf(diagram)}
+                          className="rounded-xl border border-[#2a3144] px-4 py-2 text-sm font-semibold text-slate-100"
+                        >
+                          PDF
+                        </button>
+                      </div>
                     </div>
-                    <div className="overflow-hidden rounded-[1.2rem] bg-white p-5 text-slate-900">
+                    <div
+                      id={`diagram-preview-${diagram.id}`}
+                      className="overflow-hidden rounded-[1.2rem] bg-white p-5 text-slate-900"
+                    >
                       <MermaidDiagram chart={diagram.mermaidCode} />
                     </div>
                   </div>

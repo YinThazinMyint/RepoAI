@@ -2,17 +2,20 @@
 
 import { axiosInstance } from "@/lib/api";
 import { useAuth } from "@/context/auth-context";
+import { AxiosError } from "axios";
 import type { GitHubRepository } from "@/lib/types";
 import type { RepositorySummary } from "@/lib/types";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 type UploadMode = "github" | "zip";
+type RepositoryVisibility = "private" | "public";
 
 export function UploadForm() {
   const { isAuthenticated, loginWithProvider, user } = useAuth();
   const router = useRouter();
   const [mode, setMode] = useState<UploadMode>("github");
+  const [repositoryVisibility, setRepositoryVisibility] = useState<RepositoryVisibility>("public");
   const [githubUrl, setGithubUrl] = useState("");
   const [githubRepositories, setGithubRepositories] = useState<GitHubRepository[]>([]);
   const [isLoadingRepositories, setIsLoadingRepositories] = useState(false);
@@ -20,6 +23,12 @@ export function UploadForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<null | string>(null);
   const [messageType, setMessageType] = useState<"error" | "success">("success");
+  const shouldShowGithubConnect =
+    messageType === "error"
+    && repositoryVisibility === "private"
+    && (message?.toLowerCase().includes("private")
+      || message?.toLowerCase().includes("connect github")
+      || message?.toLowerCase().includes("github connection"));
 
   useEffect(() => {
     if (mode !== "github" || !isAuthenticated || !user?.githubConnected) {
@@ -47,6 +56,12 @@ export function UploadForm() {
       return;
     }
 
+    if (mode === "github" && repositoryVisibility === "private" && !user?.githubConnected) {
+      setMessageType("error");
+      setMessage("Private repositories require GitHub connection.");
+      return;
+    }
+
     if (mode === "zip" && !zipFile) {
       setMessageType("error");
       setMessage("Please choose a ZIP file first.");
@@ -60,6 +75,7 @@ export function UploadForm() {
       const formData = new FormData();
       if (mode === "github" && githubUrl) {
         formData.append("githubUrl", githubUrl);
+        formData.append("repositoryVisibility", repositoryVisibility);
       }
       if (mode === "zip" && zipFile) {
         formData.append("zipFile", zipFile);
@@ -78,8 +94,12 @@ export function UploadForm() {
       router.push(`/repositories/${response.data.id}`);
     } catch (error) {
       console.error(error);
+      const apiMessage =
+        error instanceof AxiosError && typeof error.response?.data?.message === "string"
+          ? error.response.data.message
+          : null;
       setMessageType("error");
-      setMessage("Upload failed. Please try again. If it keeps failing, check the backend log.");
+      setMessage(apiMessage ?? "Upload failed. Please try again. If it keeps failing, check the backend log.");
     } finally {
       setIsSubmitting(false);
     }
@@ -140,7 +160,7 @@ export function UploadForm() {
                 <div>
                   <label className="mb-2 block text-sm font-semibold">GitHub repository URL</label>
                   <p className="text-sm text-[color:var(--muted)]">
-                    Use this path when the user wants GitHub-connected import.
+                    Choose public for anonymous URL scanning, or private when GitHub access is required.
                   </p>
                 </div>
                 <button
@@ -158,6 +178,52 @@ export function UploadForm() {
                   : "GitHub is not connected yet. Connect your account to browse your repositories, or paste a GitHub URL manually."}
               </div>
 
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRepositoryVisibility("public");
+                    setMessage(null);
+                  }}
+                  className={`rounded-2xl border px-4 py-3 text-left transition ${
+                    repositoryVisibility === "public"
+                      ? "border-[color:var(--primary)] bg-[color:var(--ring)]"
+                      : "border-[color:var(--border)] bg-[color:var(--background)]"
+                  }`}
+                >
+                  <p className="font-semibold">Public URL</p>
+                  <p className="mt-1 text-xs text-[color:var(--muted)]">No GitHub connection needed.</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRepositoryVisibility("private");
+                    setMessage(null);
+                  }}
+                  className={`rounded-2xl border px-4 py-3 text-left transition ${
+                    repositoryVisibility === "private"
+                      ? "border-[color:var(--primary)] bg-[color:var(--ring)]"
+                      : "border-[color:var(--border)] bg-[color:var(--background)]"
+                  }`}
+                >
+                  <p className="font-semibold">Private Repo</p>
+                  <p className="mt-1 text-xs text-[color:var(--muted)]">Requires GitHub connection.</p>
+                </button>
+              </div>
+
+              {repositoryVisibility === "private" && !user?.githubConnected ? (
+                <div className="rounded-2xl bg-amber-500/15 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+                  Private import needs GitHub connection.
+                  <button
+                    type="button"
+                    onClick={() => loginWithProvider("github")}
+                    className="ml-2 font-semibold underline"
+                  >
+                    Connect GitHub
+                  </button>
+                </div>
+              ) : null}
+
               {user?.githubConnected ? (
                 <div className="space-y-3">
                   <label className="block text-sm font-semibold">Choose from connected GitHub repositories</label>
@@ -169,7 +235,10 @@ export function UploadForm() {
                         <button
                           key={repository.id}
                           type="button"
-                          onClick={() => setGithubUrl(repository.htmlUrl)}
+                          onClick={() => {
+                            setGithubUrl(repository.htmlUrl);
+                            setRepositoryVisibility(repository.isPrivate ? "private" : "public");
+                          }}
                           className={`block w-full rounded-2xl border px-4 py-3 text-left transition ${
                             githubUrl === repository.htmlUrl
                               ? "border-[color:var(--primary)] bg-[color:var(--ring)]"
@@ -255,15 +324,24 @@ export function UploadForm() {
           </button>
 
           {message ? (
-            <p
+            <div
               className={`mt-4 rounded-2xl px-4 py-3 text-sm ${
                 messageType === "success"
                   ? "bg-teal-500/15 text-teal-700 dark:text-teal-300"
                   : "bg-rose-500/15 text-rose-700 dark:text-rose-300"
               }`}
             >
-              {message}
-            </p>
+              <p>{message}</p>
+              {shouldShowGithubConnect ? (
+                <button
+                  type="button"
+                  onClick={() => loginWithProvider("github")}
+                  className="mt-3 rounded-2xl bg-[color:var(--primary)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[color:var(--primary-strong)]"
+                >
+                  {user?.githubConnected ? "Reconnect GitHub" : "Connect GitHub"}
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </div>

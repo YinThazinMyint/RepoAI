@@ -3,8 +3,9 @@
 import { useMemo, useRef, useState } from "react";
 import { useEffect } from "react";
 import { axiosInstance } from "@/lib/api";
+import { AxiosError } from "axios";
 import type { RepoDiagram, RepositoryDetail, RepositorySummary } from "@/lib/types";
-import { formatDate } from "@/lib/utils";
+import { downloadTextFile, formatDate, safeFilename } from "@/lib/utils";
 import { Image as ImageIcon, Sparkles, Workflow, X } from "lucide-react";
 import { MermaidDiagram } from "@/components/mermaid-diagram";
 
@@ -23,7 +24,8 @@ export function DiagramsWorkspace() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isGenerateOpen, setIsGenerateOpen] = useState(false);
   const [generationMessage, setGenerationMessage] = useState<string | null>(null);
-  const [exportFormat, setExportFormat] = useState<"pdf" | "png">("png");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [exportFormat, setExportFormat] = useState<"mmd" | "pdf" | "png">("png");
   const previewRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -113,7 +115,7 @@ export function DiagramsWorkspace() {
       const pngUrl = canvas.toDataURL("image/png");
       const anchor = document.createElement("a");
       anchor.href = pngUrl;
-      anchor.download = `${selectedDiagram.title}.png`;
+      anchor.download = `${safeFilename(selectedDiagram.title, "diagram")}.png`;
       anchor.click();
       URL.revokeObjectURL(blobUrl);
     };
@@ -159,11 +161,51 @@ export function DiagramsWorkspace() {
   };
 
   const handleExport = () => {
+    if (exportFormat === "mmd") {
+      downloadTextFile(
+        selectedDiagram?.mermaidCode ?? "",
+        `${safeFilename(selectedDiagram?.title ?? "diagram", "diagram")}.mmd`,
+        "text/plain;charset=utf-8",
+      );
+      return;
+    }
+
     if (exportFormat === "png") {
       void exportAsPng();
       return;
     }
     exportAsPdf();
+  };
+
+  const generateDiagram = async (title: string) => {
+    if (!selectedRepositoryId) {
+      setErrorMessage("Select a repository before generating a diagram.");
+      return;
+    }
+
+    setIsGenerating(true);
+    setErrorMessage(null);
+    setGenerationMessage(`${title} generation started for selected repository.`);
+
+    try {
+      const response = await axiosInstance.post<RepoDiagram>(
+        `/repositories/${selectedRepositoryId}/diagrams`,
+        { diagramType: title },
+      );
+      setDiagrams((current) => [response.data, ...current]);
+      setSelectedDiagramId(response.data.id);
+      setGenerationMessage(`${title} generated.`);
+      setIsGenerateOpen(false);
+    } catch (error) {
+      const apiMessage =
+        error instanceof AxiosError && typeof error.response?.data?.message === "string"
+          ? error.response.data.message
+          : null;
+      setErrorMessage(apiMessage ?? `${title} could not be generated. Check the backend and OpenAI configuration.`);
+      setGenerationMessage(null);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   return (
@@ -254,9 +296,10 @@ export function DiagramsWorkspace() {
             <div className="flex items-center gap-2">
               <select
                 value={exportFormat}
-                onChange={(event) => setExportFormat(event.target.value as "pdf" | "png")}
+                onChange={(event) => setExportFormat(event.target.value as "mmd" | "pdf" | "png")}
                 className="rounded-sm border border-black/60 bg-[#fefefe] px-2 py-1.5 text-sm outline-none"
               >
+                <option value="mmd">Mermaid (.mmd)</option>
                 <option value="png">PNG (.png)</option>
                 <option value="pdf">PDF (.pdf)</option>
               </select>
@@ -306,10 +349,8 @@ export function DiagramsWorkspace() {
                 <button
                   key={option.title}
                   type="button"
-                  onClick={() => {
-                    setGenerationMessage(`${option.title} generation started for selected repository.`);
-                    setIsGenerateOpen(false);
-                  }}
+                  onClick={() => void generateDiagram(option.title)}
+                  disabled={isGenerating}
                   className="rounded-xl border border-black/20 bg-[#eceff3] px-4 py-4 text-left transition hover:border-black/40 hover:bg-[#e6e9ee]"
                 >
                   <div className="flex items-start gap-2">

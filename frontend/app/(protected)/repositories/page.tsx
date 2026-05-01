@@ -2,7 +2,6 @@
 
 import { AddRepositoryModal } from "@/components/add-repository-modal";
 import { axiosInstance } from "@/lib/api";
-import { mockRepositories } from "@/lib/mock-data";
 import type { RepositorySummary } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 import { Folder, Plus, Trash2 } from "lucide-react";
@@ -11,7 +10,7 @@ import { useEffect, useState } from "react";
 
 export default function RepositoriesPage() {
   const router = useRouter();
-  const [repositories, setRepositories] = useState<RepositorySummary[]>(mockRepositories);
+  const [repositories, setRepositories] = useState<RepositorySummary[]>([]);
   const [openAddModal, setOpenAddModal] = useState(false);
 
   const statusLabel = (status: RepositorySummary["status"]) => {
@@ -31,7 +30,7 @@ export default function RepositoriesPage() {
     void axiosInstance
       .get<RepositorySummary[]>("/repositories")
       .then((response) => setRepositories(response.data))
-      .catch(() => setRepositories(mockRepositories));
+      .catch(() => setRepositories([]));
   }, []);
 
   return (

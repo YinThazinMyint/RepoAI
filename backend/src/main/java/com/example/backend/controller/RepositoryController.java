@@ -4,6 +4,7 @@ import com.example.backend.dto.RepositoryDTO;
 import com.example.backend.dto.auth.UserProfileResponse;
 import com.example.backend.dto.repository.RepositoryDetailResponse;
 import com.example.backend.entity.AIQuestion;
+import com.example.backend.entity.Diagram;
 import com.example.backend.entity.Documentation;
 import com.example.backend.entity.Repository;
 import com.example.backend.entity.User;
@@ -39,6 +40,7 @@ public class RepositoryController {
             @RequestParam(required = false) String description,
             @RequestParam(required = false) String language,
             @RequestParam(required = false) String techStack,
+            @RequestParam(defaultValue = "public") String repositoryVisibility,
             Authentication authentication
     ) {
         Repository repository = repositoryService.uploadRepository(
@@ -48,32 +50,62 @@ public class RepositoryController {
                 description,
                 language,
                 techStack,
+                repositoryVisibility,
+                currentUserId(authentication),
                 resolveGithubOAuthToken(authentication)
         );
         return ResponseEntity.ok(repository);
     }
 
     @GetMapping
-    public ResponseEntity<List<Repository>> getRepositories() {
-        return ResponseEntity.ok(repositoryService.getRepositories());
+    public ResponseEntity<List<Repository>> getRepositories(Authentication authentication) {
+        return ResponseEntity.ok(repositoryService.getRepositories(currentUserId(authentication)));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<RepositoryDetailResponse> getRepository(@PathVariable Long id) {
-        return ResponseEntity.ok(repositoryService.getRepository(id));
+    public ResponseEntity<RepositoryDetailResponse> getRepository(@PathVariable Long id, Authentication authentication) {
+        return ResponseEntity.ok(repositoryService.getRepository(id, currentUserId(authentication)));
     }
 
     @PostMapping("/{id}/questions")
-    public ResponseEntity<AIQuestion> askQuestion(@PathVariable Long id, @RequestBody RepositoryDTO repositoryDTO) {
-        return ResponseEntity.ok(repositoryService.askQuestion(id, repositoryDTO.getQuestionText()));
+    public ResponseEntity<AIQuestion> askQuestion(
+            @PathVariable Long id,
+            @RequestBody RepositoryDTO repositoryDTO,
+            Authentication authentication
+    ) {
+        return ResponseEntity.ok(repositoryService.askQuestion(id, repositoryDTO.getQuestionText(), currentUserId(authentication)));
     }
 
     @PostMapping("/{id}/documentation")
     public ResponseEntity<Documentation> generateDocumentation(
             @PathVariable Long id,
-            @RequestBody RepositoryDTO repositoryDTO
+            @RequestBody RepositoryDTO repositoryDTO,
+            Authentication authentication
     ) {
-        return ResponseEntity.ok(repositoryService.generateDocumentation(id, repositoryDTO.getDocumentationType()));
+        return ResponseEntity.ok(repositoryService.generateDocumentation(
+                id,
+                repositoryDTO.getDocumentationType(),
+                currentUserId(authentication)
+        ));
+    }
+
+    @PostMapping("/{id}/diagrams")
+    public ResponseEntity<Diagram> generateDiagram(
+            @PathVariable Long id,
+            @RequestBody RepositoryDTO repositoryDTO,
+            Authentication authentication
+    ) {
+        return ResponseEntity.ok(repositoryService.generateDiagram(id, repositoryDTO.getDiagramType(), currentUserId(authentication)));
+    }
+
+    private Long currentUserId(Authentication authentication) {
+        if (authentication == null || !(authentication.getPrincipal() instanceof UserProfileResponse principal)) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.UNAUTHORIZED,
+                    "Login is required."
+            );
+        }
+        return principal.getId();
     }
 
     private String resolveGithubOAuthToken(Authentication authentication) {

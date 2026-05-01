@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { axiosInstance } from "@/lib/api";
-import { mockRepositories } from "@/lib/mock-data";
 import type { RepositorySummary } from "@/lib/types";
 import { RepoCard } from "./repo-card";
 
@@ -26,14 +25,14 @@ function RepoCardSkeleton() {
 
 export function RepoList() {
   const [repositories, setRepositories] =
-    useState<RepositorySummary[]>(mockRepositories);
+    useState<RepositorySummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     void axiosInstance
       .get<RepositorySummary[]>("/repositories")
       .then((response) => setRepositories(response.data))
-      .catch(() => setRepositories(mockRepositories))
+      .catch(() => setRepositories([]))
       .finally(() => setIsLoading(false));
   }, []);
 

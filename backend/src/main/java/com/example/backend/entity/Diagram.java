@@ -8,6 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Lob;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Transient;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import lombok.AllArgsConstructor;
@@ -44,6 +45,18 @@ public class Diagram {
 
     @Column(nullable = false)
     private Instant updatedAt;
+
+    @Transient
+    public String getType() {
+        String normalizedTitle = title != null ? title.toLowerCase() : "";
+        if (normalizedTitle.contains("sequence")) {
+            return "Sequence";
+        }
+        if (normalizedTitle.contains("architecture")) {
+            return "Architecture";
+        }
+        return "Flowchart";
+    }
 
     @PrePersist
     protected void onCreate() {

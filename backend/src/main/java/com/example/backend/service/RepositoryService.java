@@ -19,20 +19,27 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Base64;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -41,11 +48,13 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class RepositoryService {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -91,7 +100,7 @@ public class RepositoryService {
             String language,
             String techStack
     ) {
-        return uploadRepository(githubUrl, zipFile, name, description, language, techStack, null);
+        return uploadRepository(githubUrl, zipFile, name, description, language, techStack, "public", null, null);
     }
 
     public Repository uploadRepository(
@@ -101,6 +110,8 @@ public class RepositoryService {
             String description,
             String language,
             String techStack,
+            String repositoryVisibility,
+            Long ownerUserId,
             String githubOAuthToken
     ) {
         RepositoryDTO repositoryDTO = RepositoryDTO.builder()
@@ -109,14 +120,15 @@ public class RepositoryService {
                 .description(description)
                 .language(language)
                 .techStack(techStack)
+                .repositoryVisibility(repositoryVisibility)
                 .build();
 
         if (StringUtils.hasText(githubUrl)) {
-            return storeGithubRepository(repositoryDTO, githubOAuthToken);
+            return storeGithubRepository(repositoryDTO, ownerUserId, githubOAuthToken);
         }
 
         if (zipFile != null && !zipFile.isEmpty()) {
-            return storeZipRepository(repositoryDTO, zipFile);
+            return storeZipRepository(repositoryDTO, zipFile, ownerUserId);
         }
 
         throw new IllegalArgumentException("Either a GitHub URL or ZIP file must be provided.");
@@ -124,6 +136,10 @@ public class RepositoryService {
 
     public List<Repository> getRepositories() {
         return repositoryRepository.findAllByOrderByCreatedAtDesc();
+    }
+
+    public List<Repository> getRepositories(Long ownerUserId) {
+        return repositoryRepository.findByOwnerUserIdOrderByCreatedAtDesc(ownerUserId);
     }
 
     public DashboardStatsResponse getDashboardStats() {
@@ -135,11 +151,43 @@ public class RepositoryService {
                 .build();
     }
 
+    public DashboardStatsResponse getDashboardStats(Long ownerUserId) {
+        List<Long> repositoryIds = repositoryIdsForOwner(ownerUserId);
+        return DashboardStatsResponse.builder()
+                .repositories(repositoryRepository.countByOwnerUserId(ownerUserId))
+                .questions(repositoryIds.isEmpty() ? 0 : aiQuestionRepository.countByRepositoryIdIn(repositoryIds))
+                .docs(repositoryIds.isEmpty() ? 0 : documentationRepository.countByRepositoryIdIn(repositoryIds))
+                .diagrams(repositoryIds.isEmpty() ? 0 : diagramRepository.countByRepositoryIdIn(repositoryIds))
+                .build();
+    }
+
     public List<DocumentationSummaryResponse> getDocumentationSummaries() {
         Map<Long, Repository> repositoriesById = repositoryRepository.findAll().stream()
                 .collect(Collectors.toMap(Repository::getId, Function.identity()));
 
         return documentationRepository.findAllByOrderByUpdatedAtDesc().stream()
+                .map(documentation -> DocumentationSummaryResponse.builder()
+                        .id(documentation.getId())
+                        .repositoryId(documentation.getRepositoryId())
+                        .repositoryName(resolveRepositoryName(repositoriesById, documentation.getRepositoryId()))
+                        .title(documentation.getTitle())
+                        .content(documentation.getContent())
+                        .updatedAt(documentation.getUpdatedAt())
+                        .build())
+                .toList();
+    }
+
+    public List<DocumentationSummaryResponse> getDocumentationSummaries(Long ownerUserId) {
+        List<Repository> repositories = repositoryRepository.findByOwnerUserId(ownerUserId);
+        Map<Long, Repository> repositoriesById = repositories.stream()
+                .collect(Collectors.toMap(Repository::getId, Function.identity()));
+        List<Long> repositoryIds = new ArrayList<>(repositoriesById.keySet());
+
+        if (repositoryIds.isEmpty()) {
+            return List.of();
+        }
+
+        return documentationRepository.findByRepositoryIdInOrderByUpdatedAtDesc(repositoryIds).stream()
                 .map(documentation -> DocumentationSummaryResponse.builder()
                         .id(documentation.getId())
                         .repositoryId(documentation.getRepositoryId())
@@ -167,9 +215,43 @@ public class RepositoryService {
                 .toList();
     }
 
+    public List<RecentQuestionResponse> getRecentQuestions(Long ownerUserId) {
+        List<Repository> repositories = repositoryRepository.findByOwnerUserId(ownerUserId);
+        Map<Long, Repository> repositoriesById = repositories.stream()
+                .collect(Collectors.toMap(Repository::getId, Function.identity()));
+        List<Long> repositoryIds = new ArrayList<>(repositoriesById.keySet());
+
+        if (repositoryIds.isEmpty()) {
+            return List.of();
+        }
+
+        return aiQuestionRepository.findTop10ByRepositoryIdInOrderByRespondedAtDesc(repositoryIds).stream()
+                .map(question -> RecentQuestionResponse.builder()
+                        .id(question.getId())
+                        .repositoryId(question.getRepositoryId())
+                        .repositoryName(resolveRepositoryName(repositoriesById, question.getRepositoryId()))
+                        .questionText(question.getQuestionText())
+                        .answerText(question.getAnswerText())
+                        .respondedAt(question.getRespondedAt())
+                        .build())
+                .toList();
+    }
+
     @Transactional(readOnly = true)
     public RepositoryDetailResponse getRepository(Long id) {
         return repositoryRepository.findById(id)
+                .map(repository -> RepositoryDetailResponse.builder()
+                        .repository(repository)
+                        .docs(documentationRepository.findByRepositoryIdOrderByUpdatedAtDesc(id))
+                        .diagrams(diagramRepository.findByRepositoryIdOrderByUpdatedAtDesc(id))
+                        .questions(aiQuestionRepository.findByRepositoryIdOrderByRespondedAtDesc(id))
+                        .build())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Repository not found."));
+    }
+
+    @Transactional(readOnly = true)
+    public RepositoryDetailResponse getRepository(Long id, Long ownerUserId) {
+        return repositoryRepository.findByIdAndOwnerUserId(id, ownerUserId)
                 .map(repository -> RepositoryDetailResponse.builder()
                         .repository(repository)
                         .docs(documentationRepository.findByRepositoryIdOrderByUpdatedAtDesc(id))
@@ -201,6 +283,12 @@ public class RepositoryService {
     }
 
     @Transactional
+    public AIQuestion askQuestion(Long repositoryId, String questionText, Long ownerUserId) {
+        requireOwnedRepository(repositoryId, ownerUserId);
+        return askQuestion(repositoryId, questionText);
+    }
+
+    @Transactional
     public Documentation generateDocumentation(Long repositoryId, String documentationType) {
         Repository repository = repositoryRepository.findById(repositoryId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Repository not found."));
@@ -217,14 +305,52 @@ public class RepositoryService {
         return savedDocumentation;
     }
 
+    @Transactional
+    public Documentation generateDocumentation(Long repositoryId, String documentationType, Long ownerUserId) {
+        requireOwnedRepository(repositoryId, ownerUserId);
+        return generateDocumentation(repositoryId, documentationType);
+    }
+
+    @Transactional
+    public Diagram generateDiagram(Long repositoryId, String diagramType) {
+        Repository repository = repositoryRepository.findById(repositoryId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Repository not found."));
+
+        String title = normalizeDiagramTitle(diagramType);
+        String mermaidCode = generateMermaidDiagram(repository, title);
+
+        Diagram diagram = Diagram.builder()
+                .repositoryId(repositoryId)
+                .title(title)
+                .mermaidCode(mermaidCode)
+                .build();
+        return diagramRepository.save(diagram);
+    }
+
+    @Transactional
+    public Diagram generateDiagram(Long repositoryId, String diagramType, Long ownerUserId) {
+        requireOwnedRepository(repositoryId, ownerUserId);
+        return generateDiagram(repositoryId, diagramType);
+    }
+
     private Repository storeGithubRepository(RepositoryDTO repositoryDTO) {
         return storeGithubRepository(repositoryDTO, null);
     }
 
     private Repository storeGithubRepository(RepositoryDTO repositoryDTO, String githubOAuthToken) {
-        JsonNode response = StringUtils.hasText(githubOAuthToken)
-                ? fetchGithubRepositoryMetadata(repositoryDTO.getGithubUrl(), githubOAuthToken)
-                : fetchGithubRepositoryMetadata(repositoryDTO.getGithubUrl());
+        return storeGithubRepository(repositoryDTO, null, githubOAuthToken);
+    }
+
+    private Repository storeGithubRepository(RepositoryDTO repositoryDTO, Long ownerUserId, String githubOAuthToken) {
+        boolean privateImport = "private".equalsIgnoreCase(repositoryDTO.getRepositoryVisibility());
+        if (privateImport && !StringUtils.hasText(githubOAuthToken)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Private repositories require GitHub connection."
+            );
+        }
+
+        JsonNode response = fetchRepositoryMetadataForImport(repositoryDTO, privateImport, githubOAuthToken);
 
         Repository repository = Repository.builder()
                 .name(textOrFallback(response, "name", repositoryDTO.getName()))
@@ -232,15 +358,50 @@ public class RepositoryService {
                 .description(textOrFallback(response, "description", repositoryDTO.getDescription()))
                 .language(textOrFallback(response, "language", repositoryDTO.getLanguage()))
                 .techStack(resolveTechStack(response, repositoryDTO.getTechStack()))
-                .status(RepositoryStatus.READY)
+                .ownerUserId(ownerUserId)
+                .status(RepositoryStatus.ANALYZING)
                 .build();
 
         Repository savedRepository = repositoryRepository.save(repository);
         generateOverviewArtifacts(savedRepository, "GitHub URL");
-        if (openAiService.isConfigured()) {
-            indexGithubRepositoryFiles(savedRepository, repositoryDTO.getGithubUrl(), response, githubOAuthToken);
+        return indexGithubRepositoryFiles(
+                savedRepository,
+                repositoryDTO.getGithubUrl(),
+                response,
+                privateImport ? githubOAuthToken : null
+        );
+    }
+
+    private JsonNode fetchRepositoryMetadataForImport(
+            RepositoryDTO repositoryDTO,
+            boolean privateImport,
+            String githubOAuthToken
+    ) {
+        if (privateImport) {
+            return fetchGithubRepositoryMetadata(repositoryDTO.getGithubUrl(), githubOAuthToken);
         }
-        return savedRepository;
+
+        try {
+            return fetchGithubRepositoryMetadata(repositoryDTO.getGithubUrl());
+        } catch (Exception exception) {
+            log.warn(
+                    "GitHub metadata validation failed for public URL {}; falling back to archive scan: {}",
+                    repositoryDTO.getGithubUrl(),
+                    exception.getMessage()
+            );
+            return buildFallbackGithubMetadata(repositoryDTO.getGithubUrl(), repositoryDTO);
+        }
+    }
+
+    private JsonNode buildFallbackGithubMetadata(String githubUrl, RepositoryDTO repositoryDTO) {
+        String[] repositoryPath = extractOwnerAndRepository(githubUrl);
+        com.fasterxml.jackson.databind.node.ObjectNode fallback = OBJECT_MAPPER.createObjectNode();
+        fallback.put("name", firstNonBlank(repositoryDTO.getName(), repositoryPath[1]));
+        fallback.put("description", repositoryDTO.getDescription());
+        fallback.put("language", repositoryDTO.getLanguage());
+        fallback.put("default_branch", "main");
+        fallback.put("private", false);
+        return fallback;
     }
 
     JsonNode fetchGithubRepositoryMetadata(String githubUrl) {
@@ -273,7 +434,7 @@ public class RepositoryService {
         }
     }
 
-    private void indexGithubRepositoryFiles(
+    private Repository indexGithubRepositoryFiles(
             Repository repository,
             String githubUrl,
             JsonNode metadata,
@@ -281,37 +442,260 @@ public class RepositoryService {
     ) {
         try {
             String branch = textOrFallback(metadata, "default_branch", "main");
-            byte[] archiveBytes = fetchGithubRepositoryArchive(githubUrl, branch, githubOAuthToken);
-            List<RepositorySourceFile> extractedFiles = extractTextFiles(archiveBytes);
+            List<RepositorySourceFile> extractedFiles = loadGithubSourceFiles(githubUrl, branch, githubOAuthToken);
             repository.setFileCount(extractedFiles.size());
             repository.setLinesOfCode(countLines(extractedFiles));
+            repository.setStatus(RepositoryStatus.READY);
             Repository updatedRepository = repositoryRepository.save(repository);
             List<RepositorySourceFile> sourceFiles = withRepositoryContext(updatedRepository, extractedFiles);
             repositoryChunkService.indexRepository(repository.getId(), sourceFiles);
+            return updatedRepository;
         } catch (Exception exception) {
-            // Adding a repository should still succeed if GitHub archive indexing is temporarily unavailable.
+            log.warn(
+                    "Repository {} file scan failed for GitHub URL {}: {}",
+                    repository.getId(),
+                    githubUrl,
+                    exception.getMessage(),
+                    exception
+            );
+            repository.setStatus(RepositoryStatus.ERROR);
+            repositoryRepository.save(repository);
             repositoryChunkService.indexRepository(repository.getId(), withRepositoryContext(repository, List.of()));
+            throw buildGithubScanException(exception);
         }
+    }
+
+    private List<RepositorySourceFile> loadGithubSourceFiles(
+            String githubUrl,
+            String branch,
+            String githubOAuthToken
+    ) {
+        try {
+            byte[] archiveBytes = fetchGithubRepositoryArchive(githubUrl, branch, githubOAuthToken);
+            if (archiveBytes == null || archiveBytes.length == 0) {
+                throw new IllegalStateException("GitHub archive download returned an empty response.");
+            }
+            return extractTextFiles(archiveBytes);
+        } catch (Exception archiveException) {
+            log.info(
+                    "GitHub archive download failed for {}; retrying with git clone fallback: {}",
+                    githubUrl,
+                    archiveException.getMessage()
+            );
+            return cloneAndScanGithubRepository(githubUrl, githubOAuthToken);
+        }
+    }
+
+    private RuntimeException buildGithubScanException(Exception exception) {
+        if (exception instanceof IllegalStateException) {
+            return new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "Repository files could not be downloaded from GitHub. Please check that the public URL is correct and try again."
+            );
+        }
+
+        if (exception instanceof RestClientResponseException responseException) {
+            HttpStatus status = HttpStatus.resolve(responseException.getStatusCode().value());
+            if (status == HttpStatus.NOT_FOUND || status == HttpStatus.FORBIDDEN || status == HttpStatus.UNAUTHORIZED) {
+                return new ResponseStatusException(
+                        HttpStatus.FORBIDDEN,
+                        "This repository could not be scanned anonymously. If it is private, connect your GitHub account and import it again."
+                );
+            }
+            if (status == HttpStatus.TOO_MANY_REQUESTS) {
+                return new ResponseStatusException(
+                        HttpStatus.TOO_MANY_REQUESTS,
+                        "GitHub rate limit reached while scanning this public repository. Try again later."
+                );
+            }
+        }
+
+        return new ResponseStatusException(
+                HttpStatus.BAD_GATEWAY,
+                "Repository files could not be downloaded from GitHub. Please check that the public URL is correct and try again."
+        );
     }
 
     byte[] fetchGithubRepositoryArchive(String githubUrl, String branch, String githubOAuthToken) {
         String[] repositoryPath = extractOwnerAndRepository(githubUrl);
+        try {
+            return fetchPublicGithubArchiveWithBranchFallback(repositoryPath[0], repositoryPath[1], branch);
+        } catch (RestClientResponseException publicArchiveException) {
+            if (!StringUtils.hasText(githubOAuthToken)) {
+                throw publicArchiveException;
+            }
+
+            log.info(
+                    "Public GitHub archive download failed for {}/{} on branch {}; retrying with connected GitHub token.",
+                    repositoryPath[0],
+                    repositoryPath[1],
+                    branch
+            );
+            byte[] authenticatedArchive =
+                    fetchAuthenticatedGithubArchive(repositoryPath[0], repositoryPath[1], branch, githubOAuthToken);
+            if (authenticatedArchive == null || authenticatedArchive.length == 0) {
+                throw new IllegalStateException("Authenticated GitHub archive download returned an empty response.");
+            }
+            return authenticatedArchive;
+        }
+    }
+
+    private byte[] fetchPublicGithubArchiveWithBranchFallback(String owner, String repositoryName, String branch) {
+        List<String> branchCandidates = new ArrayList<>();
+        if (StringUtils.hasText(branch)) {
+            branchCandidates.add(branch);
+        }
+        branchCandidates.add("main");
+        branchCandidates.add("master");
+
+        RestClientResponseException lastException = null;
+        for (String candidateBranch : branchCandidates.stream().distinct().toList()) {
+            try {
+                return fetchPublicGithubArchive(owner, repositoryName, candidateBranch);
+            } catch (RestClientResponseException exception) {
+                lastException = exception;
+            }
+        }
+
+        throw lastException != null
+                ? lastException
+                : new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub archive could not be downloaded.");
+    }
+
+    private byte[] fetchPublicGithubArchive(String owner, String repositoryName, String branch) {
+        RestClient restClient = RestClient.builder()
+                .baseUrl("https://codeload.github.com")
+                .defaultHeader(HttpHeaders.ACCEPT, "application/zip")
+                .defaultHeader(HttpHeaders.USER_AGENT, "RepoAI")
+                .build();
+
+        byte[] archive = restClient.get()
+                .uri("/repos/{owner}/{repo}/zip/refs/heads/{branch}", owner, repositoryName, branch)
+                .retrieve()
+                .body(byte[].class);
+        if (archive == null || archive.length == 0) {
+            throw new IllegalStateException("Public GitHub archive download returned an empty response.");
+        }
+        return archive;
+    }
+
+    private byte[] fetchAuthenticatedGithubArchive(
+            String owner,
+            String repositoryName,
+            String branch,
+            String githubOAuthToken
+    ) {
         RestClient restClient = RestClient.builder()
                 .baseUrl(githubApiBaseUrl)
                 .defaultHeader(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                .defaultHeader(HttpHeaders.USER_AGENT, "RepoAI")
                 .build();
 
         return restClient.get()
-                .uri("/repos/{owner}/{repo}/zipball/{branch}", repositoryPath[0], repositoryPath[1], branch)
-                .headers(headers -> {
-                    if (StringUtils.hasText(githubOAuthToken)) {
-                        headers.setBearerAuth(githubOAuthToken);
-                    } else if (StringUtils.hasText(githubApiToken)) {
-                        headers.setBearerAuth(githubApiToken);
-                    }
-                })
+                .uri("/repos/{owner}/{repo}/zipball/{branch}", owner, repositoryName, branch)
+                .headers(headers -> headers.setBearerAuth(githubOAuthToken))
                 .retrieve()
                 .body(byte[].class);
+    }
+
+    private List<RepositorySourceFile> cloneAndScanGithubRepository(String githubUrl, String githubOAuthToken) {
+        Path clonePath = Path.of(System.getProperty("java.io.tmpdir"), "repoai", "repos", UUID.randomUUID().toString());
+        try {
+            Files.createDirectories(clonePath.getParent());
+            runGitClone(normalizeGitCloneUrl(githubUrl, githubOAuthToken), clonePath);
+            return scanLocalRepositoryFiles(clonePath);
+        } catch (IOException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Repository could not be cloned from GitHub.", exception);
+        } finally {
+            deleteDirectoryQuietly(clonePath);
+        }
+    }
+
+    private void runGitClone(String cloneUrl, Path clonePath) throws IOException {
+        Process process = new ProcessBuilder("git", "clone", "--depth", "1", cloneUrl, clonePath.toString())
+                .redirectErrorStream(true)
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .start();
+
+        boolean completed;
+        try {
+            completed = process.waitFor(90, TimeUnit.SECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub clone was interrupted.", exception);
+        }
+
+        if (!completed) {
+            process.destroyForcibly();
+            throw new ResponseStatusException(HttpStatus.GATEWAY_TIMEOUT, "GitHub clone timed out.");
+        }
+
+        if (process.exitValue() != 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub clone failed. Check the repository URL and access.");
+        }
+    }
+
+    private String normalizeGitCloneUrl(String githubUrl, String githubOAuthToken) {
+        String[] repositoryPath = extractOwnerAndRepository(githubUrl);
+        if (StringUtils.hasText(githubOAuthToken)) {
+            return "https://x-access-token:" + githubOAuthToken + "@github.com/"
+                    + repositoryPath[0] + "/" + repositoryPath[1] + ".git";
+        }
+        return "https://github.com/" + repositoryPath[0] + "/" + repositoryPath[1] + ".git";
+    }
+
+    private List<RepositorySourceFile> scanLocalRepositoryFiles(Path repositoryRoot) throws IOException {
+        List<RepositorySourceFile> sourceFiles = new ArrayList<>();
+        try (Stream<Path> paths = Files.walk(repositoryRoot)) {
+            List<Path> files = paths
+                    .filter(Files::isRegularFile)
+                    .toList();
+
+            for (Path file : files) {
+                if (sourceFiles.size() >= MAX_INDEXED_FILES) {
+                    break;
+                }
+
+                String relativePath = repositoryRoot.relativize(file).toString().replace("\\", "/");
+                if (shouldSkipPath(relativePath) || !isLikelyTextFile(relativePath)) {
+                    continue;
+                }
+
+                long size = Files.size(file);
+                if (size == 0 || size > MAX_INDEXED_FILE_BYTES) {
+                    continue;
+                }
+
+                byte[] bytes = Files.readAllBytes(file);
+                if (looksBinary(bytes)) {
+                    continue;
+                }
+
+                String content = new String(bytes, StandardCharsets.UTF_8);
+                if (StringUtils.hasText(content)) {
+                    sourceFiles.add(new RepositorySourceFile(relativePath, content));
+                }
+            }
+        }
+        return sourceFiles;
+    }
+
+    private void deleteDirectoryQuietly(Path path) {
+        if (path == null || !Files.exists(path)) {
+            return;
+        }
+        try (Stream<Path> paths = Files.walk(path)) {
+            paths.sorted(Comparator.reverseOrder())
+                    .forEach(file -> {
+                        try {
+                            Files.deleteIfExists(file);
+                        } catch (IOException ignored) {
+                            // Best-effort cleanup of temporary clone folders.
+                        }
+                    });
+        } catch (IOException ignored) {
+            // Best-effort cleanup of temporary clone folders.
+        }
     }
 
     private Repository storeZipRepository(RepositoryDTO repositoryDTO) {
@@ -325,6 +709,7 @@ public class RepositoryService {
                 .description(repositoryDTO.getDescription())
                 .language(firstNonBlank(repositoryDTO.getLanguage(), zipMetadata.language()))
                 .techStack(firstNonBlank(repositoryDTO.getTechStack(), zipMetadata.techStack()))
+                .ownerUserId(null)
                 .fileCount(sourceFiles.size())
                 .linesOfCode(countLines(sourceFiles))
                 .status(RepositoryStatus.READY)
@@ -336,7 +721,7 @@ public class RepositoryService {
         return savedRepository;
     }
 
-    private Repository storeZipRepository(RepositoryDTO repositoryDTO, MultipartFile zipFile) {
+    private Repository storeZipRepository(RepositoryDTO repositoryDTO, MultipartFile zipFile, Long ownerUserId) {
         String originalFilename = zipFile.getOriginalFilename();
         if (StringUtils.hasText(originalFilename) && !originalFilename.toLowerCase(Locale.ROOT).endsWith(".zip")) {
             throw new IllegalArgumentException("Only .zip repository archives are supported.");
@@ -358,6 +743,7 @@ public class RepositoryService {
                 .description(repositoryDTO.getDescription())
                 .language(firstNonBlank(repositoryDTO.getLanguage(), zipMetadata.language()))
                 .techStack(firstNonBlank(repositoryDTO.getTechStack(), zipMetadata.techStack()))
+                .ownerUserId(ownerUserId)
                 .fileCount(sourceFiles.size())
                 .linesOfCode(countLines(sourceFiles))
                 .status(RepositoryStatus.READY)
@@ -456,6 +842,181 @@ public class RepositoryService {
         } catch (Exception exception) {
             return fallback;
         }
+    }
+
+    private String normalizeDiagramTitle(String diagramType) {
+        String value = firstNonBlank(diagramType, "Flowchart");
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        if (normalized.contains("sequence")) {
+            return "Sequence Diagram";
+        }
+        if (normalized.contains("architecture")) {
+            return "Architecture";
+        }
+        return "Flowchart";
+    }
+
+    private String generateMermaidDiagram(Repository repository, String title) {
+        String fallback = buildDiagramFallback(repository, title);
+        if (!openAiService.isConfigured()) {
+            return fallback;
+        }
+
+        String context = loadDiagramContext(repository, title);
+        try {
+            String generated = openAiService.generateText(
+                    """
+                            You generate Mermaid.js diagrams for code repositories.
+                            Return Mermaid code only, with no markdown fences and no explanation.
+                            Keep labels short and valid for Mermaid.
+                            Do not invent exact classes, endpoints, or services unless they appear in the context.
+                            """,
+                    """
+                            Diagram type: %s
+                            Repository name: %s
+                            Description: %s
+                            Primary language: %s
+                            Detected tech stack: %s
+                            File count: %s
+                            Lines of code: %s
+                            Source reference: %s
+
+                            Repository context:
+                            %s
+
+                            Requirements:
+                            %s
+                            """.formatted(
+                            title,
+                            firstNonBlank(repository.getName(), "Unknown"),
+                            firstNonBlank(repository.getDescription(), "No description provided"),
+                            firstNonBlank(repository.getLanguage(), "Unknown"),
+                            firstNonBlank(repository.getTechStack(), "Unknown"),
+                            repository.getFileCount() != null ? repository.getFileCount() : "Unknown",
+                            repository.getLinesOfCode() != null ? repository.getLinesOfCode() : "Unknown",
+                            firstNonBlank(repository.getGithubUrl(), "Uploaded ZIP archive"),
+                            firstNonBlank(context, "No indexed source context is available. Use metadata only."),
+                            diagramRequirements(title)
+                    )
+            );
+            return sanitizeMermaidCode(firstNonBlank(generated, fallback));
+        } catch (Exception exception) {
+            return fallback;
+        }
+    }
+
+    private String loadDiagramContext(Repository repository, String title) {
+        try {
+            ensureRepositoryHasRagContext(repository);
+            List<RepositoryChunkService.RetrievedChunk> chunks = repositoryChunkService.findRelevantChunks(
+                    repository.getId(),
+                    "Generate " + title + " Mermaid diagram for repository structure, main components, and runtime flow.",
+                    10
+            );
+            return chunks.stream()
+                    .map(chunk -> """
+                            File: %s
+                            %s
+                            """.formatted(chunk.filePath(), chunk.content()))
+                    .collect(Collectors.joining("\n---\n"));
+        } catch (Exception exception) {
+            return "";
+        }
+    }
+
+    private String diagramRequirements(String title) {
+        if ("Sequence Diagram".equals(title)) {
+            return """
+                    Create a Mermaid sequenceDiagram.
+                    Show the most likely request/interaction path across user, frontend, backend/services, database, external APIs, and AI provider when relevant.
+                    Start the diagram with: sequenceDiagram
+                    """;
+        }
+        if ("Architecture".equals(title)) {
+            return """
+                    Create a Mermaid flowchart LR system architecture diagram.
+                    Group frontend, backend, persistence, external integrations, and AI/RAG components when relevant.
+                    Start the diagram with: flowchart LR
+                    """;
+        }
+        return """
+                Create a Mermaid flowchart TD.
+                Show the repository's main code or product flow from entry point through processing, storage, generation, and output.
+                Start the diagram with: flowchart TD
+                """;
+    }
+
+    private String sanitizeMermaidCode(String mermaidCode) {
+        String sanitized = mermaidCode.trim();
+        if (sanitized.startsWith("```")) {
+            sanitized = sanitized.replaceFirst("^```(?:mermaid)?\\s*", "");
+            sanitized = sanitized.replaceFirst("\\s*```$", "");
+        }
+        return sanitized.trim();
+    }
+
+    private String buildDiagramFallback(Repository repository, String title) {
+        if ("Sequence Diagram".equals(title)) {
+            return buildSequenceDiagram(repository);
+        }
+        if ("Architecture".equals(title)) {
+            return buildArchitectureDiagram(repository);
+        }
+        return buildFlowchartDiagram(repository);
+    }
+
+    private String buildFlowchartDiagram(Repository repository) {
+        return """
+                flowchart TD
+                    A[Repository: %s] --> B[Read metadata]
+                    B --> C[Detect language: %s]
+                    B --> D[Detect stack: %s]
+                    C --> E[Index source context]
+                    D --> E
+                    E --> F[Generate documentation]
+                    E --> G[Generate Mermaid diagrams]
+                    F --> H[Repository insights ready]
+                    G --> H
+                """.formatted(
+                firstNonBlank(repository.getName(), "Unknown"),
+                firstNonBlank(repository.getLanguage(), "Unknown"),
+                firstNonBlank(repository.getTechStack(), "Unknown")
+        );
+    }
+
+    private String buildArchitectureDiagram(Repository repository) {
+        return """
+                flowchart LR
+                    User[User] --> Frontend[Frontend UI]
+                    Frontend --> Backend[Backend API]
+                    Backend --> Repo[(Repository Metadata)]
+                    Backend --> Docs[(Docs and Diagrams)]
+                    Backend --> Chunks[(Repository Chunks)]
+                    Backend --> AI[AI Provider]
+                    Backend --> GitHub[GitHub API or ZIP Upload]
+                    GitHub --> Backend
+                    AI --> Backend
+                    Backend --> Frontend
+                """;
+    }
+
+    private String buildSequenceDiagram(Repository repository) {
+        return """
+                sequenceDiagram
+                    actor User
+                    participant UI as Frontend
+                    participant API as Backend API
+                    participant DB as PostgreSQL
+                    participant AI as AI Provider
+                    User->>UI: Select %s
+                    UI->>API: Request diagram generation
+                    API->>DB: Load repository metadata and chunks
+                    API->>AI: Ask for Mermaid diagram
+                    AI-->>API: Mermaid code
+                    API->>DB: Save diagram
+                    API-->>UI: Return generated diagram
+                    UI-->>User: Render Mermaid diagram
+                """.formatted(firstNonBlank(repository.getName(), "repository"));
     }
 
     private String generateOverviewAnswer(Repository repository, String sourceType) {
@@ -901,13 +1462,20 @@ public class RepositoryService {
 
     private boolean shouldSkipPath(String path) {
         String normalizedPath = path.replace("\\", "/").toLowerCase(Locale.ROOT);
-        return normalizedPath.contains("/.git/")
+        return normalizedPath.startsWith(".git/")
+                || normalizedPath.contains("/.git/")
                 || normalizedPath.contains("/node_modules/")
+                || normalizedPath.startsWith("node_modules/")
                 || normalizedPath.contains("/target/")
+                || normalizedPath.startsWith("target/")
                 || normalizedPath.contains("/build/")
+                || normalizedPath.startsWith("build/")
                 || normalizedPath.contains("/dist/")
+                || normalizedPath.startsWith("dist/")
                 || normalizedPath.contains("/.next/")
+                || normalizedPath.startsWith(".next/")
                 || normalizedPath.contains("/coverage/")
+                || normalizedPath.startsWith("coverage/")
                 || normalizedPath.endsWith("package-lock.json")
                 || normalizedPath.endsWith("yarn.lock")
                 || normalizedPath.endsWith("pnpm-lock.yaml");
@@ -993,6 +1561,17 @@ public class RepositoryService {
     private String resolveRepositoryName(Map<Long, Repository> repositoriesById, Long repositoryId) {
         Repository repository = repositoriesById.get(repositoryId);
         return repository != null ? repository.getName() : "Unknown repository";
+    }
+
+    private List<Long> repositoryIdsForOwner(Long ownerUserId) {
+        return repositoryRepository.findByOwnerUserId(ownerUserId).stream()
+                .map(Repository::getId)
+                .toList();
+    }
+
+    private Repository requireOwnedRepository(Long repositoryId, Long ownerUserId) {
+        return repositoryRepository.findByIdAndOwnerUserId(repositoryId, ownerUserId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Repository not found."));
     }
 
     private String firstNonBlank(String... values) {

@@ -58,7 +58,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/auth/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/user/me").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/integrations/github/**").authenticated()
-                        .requestMatchers("/api/repositories/**").permitAll()
+                        .requestMatchers("/api/repositories/**").authenticated()
+                        .requestMatchers("/api/dashboard/**").authenticated()
                         .requestMatchers("/dashboard").permitAll()
                         .anyRequest().permitAll())
                 .oauth2Login(oauth2 -> oauth2

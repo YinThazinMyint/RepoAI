@@ -37,5 +37,15 @@ export const downloadTextFile = (
   URL.revokeObjectURL(objectUrl);
 };
 
+export const safeFilename = (value: string, fallback = "download") => {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+
+  return normalized || fallback;
+};
+
 export const statusLabel = (status: string) =>
   status.charAt(0) + status.slice(1).toLowerCase();
