@@ -125,7 +125,7 @@ export function AddRepositoryModal({ onClose, open }: AddRepositoryModalProps) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-[#10213f]/35 p-4"
           onClick={closeModal}
         >
             <motion.div
@@ -137,21 +137,21 @@ export function AddRepositoryModal({ onClose, open }: AddRepositoryModalProps) {
             onClick={(event) => event.stopPropagation()}
           >
             <div
-              className="rounded-xl border border-black/20 bg-[#f3f4f6] p-3 text-sm shadow-[0_18px_45px_rgba(0,0,0,0.2)]"
+              className="rounded-md border border-[#d7e7f7] bg-white p-3 text-sm shadow-[0_24px_70px_rgba(37,99,235,0.18)]"
               style={{ fontSize: 14 }}
             >
               <div className="space-y-3">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <h2 className="text-lg font-semibold tracking-tight text-black">Add Repository</h2>
-                    <p className="mt-1 text-[12px] text-[#667085]">
+                    <h2 className="text-lg font-bold tracking-tight text-[#10213f]">Add Repository</h2>
+                    <p className="mt-1 text-[12px] text-[#52627a]">
                       Paste a public GitHub URL, connect GitHub for private repos, or upload a ZIP.
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={closeModal}
-                    className="rounded-md p-1.5 text-black/60 transition hover:bg-black/5 hover:text-black"
+                    className="rounded-md p-1.5 text-[#52627a] transition hover:bg-[#edf6ff] hover:text-[#2563eb]"
                   >
                     <X className="h-5 w-5" />
                   </button>
@@ -163,8 +163,8 @@ export function AddRepositoryModal({ onClose, open }: AddRepositoryModalProps) {
                     onClick={() => setTab("github")}
                     className={`inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-[13px] font-medium transition ${
                       tab === "github"
-                        ? "border-[#22b8a9] bg-white text-black shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
-                        : "border-transparent bg-[#eef0f3] text-[#6b7280]"
+                        ? "border-[#2563eb] bg-[#eff6ff] text-[#2563eb] shadow-sm"
+                        : "border-transparent bg-[#f8fbff] text-[#52627a]"
                     }`}
                   >
                     <Github className="h-4 w-4" />
@@ -175,8 +175,8 @@ export function AddRepositoryModal({ onClose, open }: AddRepositoryModalProps) {
                     onClick={() => setTab("zip")}
                     className={`inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-[13px] font-medium transition ${
                       tab === "zip"
-                        ? "border-[#22b8a9] bg-white text-black shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
-                        : "border-transparent bg-[#eef0f3] text-[#6b7280]"
+                        ? "border-[#2563eb] bg-[#eff6ff] text-[#2563eb] shadow-sm"
+                        : "border-transparent bg-[#f8fbff] text-[#52627a]"
                     }`}
                   >
                     <Upload className="h-4 w-4" />
@@ -186,29 +186,29 @@ export function AddRepositoryModal({ onClose, open }: AddRepositoryModalProps) {
 
                 <div className="grid gap-4">
                   <div className="space-y-2">
-                    <label className="text-[13px] font-medium text-black">Repository Name</label>
+                    <label className="text-[13px] font-semibold text-[#10213f]">Repository Name</label>
                     <input
                       placeholder="my-awesome-project"
                       value={name}
                       onChange={(event) => setName(event.target.value)}
-                      className="h-9 w-full rounded-lg border border-[#d2d7de] bg-[#f7f8fa] px-3 text-[14px] text-black outline-none placeholder:text-[#7b8496] focus:border-[#22b8a9]"
+                      className="h-9 w-full rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-3 text-[14px] text-[#172033] outline-none placeholder:text-[#8a9ab0] focus:border-[#38bdf8] focus:bg-white"
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-[13px] font-medium text-black">Description (optional)</label>
+                    <label className="text-[13px] font-semibold text-[#10213f]">Description (optional)</label>
                     <textarea
                       placeholder="Brief description of the project..."
                       value={description}
                       onChange={(event) => setDescription(event.target.value)}
-                      className="min-h-[64px] w-full resize-y rounded-lg border border-[#d2d7de] bg-[#f7f8fa] px-3 py-2 text-[14px] text-black outline-none placeholder:text-[#7b8496] focus:border-[#22b8a9]"
+                      className="min-h-[64px] w-full resize-y rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-3 py-2 text-[14px] text-[#172033] outline-none placeholder:text-[#8a9ab0] focus:border-[#38bdf8] focus:bg-white"
                     />
                   </div>
 
                   {tab === "github" ? (
                     <div className="space-y-2">
-                      <label className="text-[13px] font-medium text-black">GitHub URL</label>
-                      <p className="text-[12px] leading-5 text-[#667085]">
+                      <label className="text-[13px] font-semibold text-[#10213f]">GitHub URL</label>
+                      <p className="text-[12px] leading-5 text-[#52627a]">
                         Choose public to scan by URL only. Choose private when the repo needs GitHub access.
                       </p>
                       <div className="grid grid-cols-2 gap-2">
@@ -220,8 +220,8 @@ export function AddRepositoryModal({ onClose, open }: AddRepositoryModalProps) {
                           }}
                           className={`rounded-lg border px-3 py-2 text-[12px] font-semibold transition ${
                             repositoryVisibility === "public"
-                              ? "border-[#22b8a9] bg-white text-black"
-                              : "border-[#d2d7de] bg-[#eef0f3] text-[#667085]"
+                              ? "border-[#2563eb] bg-[#eff6ff] text-[#2563eb]"
+                              : "border-[#d7e7f7] bg-[#f8fbff] text-[#52627a]"
                           }`}
                         >
                           Public URL
@@ -234,8 +234,8 @@ export function AddRepositoryModal({ onClose, open }: AddRepositoryModalProps) {
                           }}
                           className={`rounded-lg border px-3 py-2 text-[12px] font-semibold transition ${
                             repositoryVisibility === "private"
-                              ? "border-[#22b8a9] bg-white text-black"
-                              : "border-[#d2d7de] bg-[#eef0f3] text-[#667085]"
+                              ? "border-[#2563eb] bg-[#eff6ff] text-[#2563eb]"
+                              : "border-[#d7e7f7] bg-[#f8fbff] text-[#52627a]"
                           }`}
                         >
                           Private Repo
@@ -257,21 +257,21 @@ export function AddRepositoryModal({ onClose, open }: AddRepositoryModalProps) {
                         placeholder="https://github.com/user/repo"
                         value={githubUrl}
                         onChange={(event) => setGithubUrl(event.target.value)}
-                        className="h-9 w-full rounded-lg border border-[#d2d7de] bg-[#f7f8fa] px-3 text-[14px] text-black outline-none placeholder:text-[#7b8496] focus:border-[#22b8a9]"
+                        className="h-9 w-full rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-3 text-[14px] text-[#172033] outline-none placeholder:text-[#8a9ab0] focus:border-[#38bdf8] focus:bg-white"
                       />
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      <label className="text-[13px] font-medium text-black">ZIP File</label>
-                      <label className="flex min-h-[84px] cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-[#d3d9e1] bg-[#f7f8fa] px-4 text-center">
+                      <label className="text-[13px] font-semibold text-[#10213f]">ZIP File</label>
+                      <label className="flex min-h-[84px] cursor-pointer flex-col items-center justify-center gap-1.5 rounded-md border-2 border-dashed border-[#bfdbfe] bg-[#f8fbff] px-4 text-center">
                         <input
                           type="file"
                           accept=".zip"
                           className="hidden"
                           onChange={(event) => setZipFile(event.target.files?.[0] ?? null)}
                         />
-                        <Upload className="h-5 w-5 text-[#697386]" />
-                        <span className="text-[13px] text-[#697386]">
+                        <Upload className="h-5 w-5 text-[#2563eb]" />
+                        <span className="text-[13px] text-[#52627a]">
                           {zipFile ? zipFile.name : "Click to select a ZIP file"}
                         </span>
                       </label>
@@ -286,7 +286,7 @@ export function AddRepositoryModal({ onClose, open }: AddRepositoryModalProps) {
                       <button
                         type="button"
                         onClick={connectGithub}
-                        className="inline-flex rounded-lg bg-black px-3 py-2 text-xs font-semibold text-white transition hover:bg-black/80"
+                        className="inline-flex rounded-md bg-[#2563eb] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#1d4ed8]"
                       >
                         Connect GitHub
                       </button>
@@ -299,7 +299,7 @@ export function AddRepositoryModal({ onClose, open }: AddRepositoryModalProps) {
                     variant="outline"
                     onClick={closeModal}
                     disabled={isSubmitting}
-                    className="h-9 rounded-lg border-[#d2d7de] bg-[#f8f9fb] px-4 text-[13px] font-medium text-black hover:bg-[#eef1f5]"
+                    className="h-9 rounded-md border-[#d7e7f7] bg-white px-4 text-[13px] font-semibold text-[#172033] hover:bg-[#f8fbff]"
                   >
                     Cancel
                   </Button>
@@ -307,7 +307,7 @@ export function AddRepositoryModal({ onClose, open }: AddRepositoryModalProps) {
                     type="button"
                     onClick={submit}
                     disabled={isSubmitting}
-                    className="inline-flex h-9 items-center justify-center rounded-lg bg-[#88d8d0] px-4 text-[13px] font-semibold text-white transition hover:bg-[#74cbc2] disabled:cursor-not-allowed disabled:opacity-70"
+                    className="inline-flex h-9 items-center justify-center rounded-md bg-[#2563eb] px-4 text-[13px] font-semibold text-white transition hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-70"
                   >
                     {isSubmitting ? "Adding..." : "Add Repository"}
                   </button>

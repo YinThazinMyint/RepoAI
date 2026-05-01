@@ -22,17 +22,17 @@ export function RepoCard({
         <CardContent className="space-y-5">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#0f1117] text-[#0d9488]">
+              <div className="flex h-11 w-11 items-center justify-center rounded-md bg-[#e0f2fe] text-[#2563eb]">
                 <FileCode2 className="h-5 w-5" />
               </div>
               <div>
                 <Link
                   href={`/repositories/${repository.id}`}
-                  className="text-base font-semibold text-slate-50 hover:text-[#0d9488]"
+                  className="text-base font-bold text-[#10213f] hover:text-[#2563eb]"
                 >
                   {repository.name}
                 </Link>
-                <p className="mt-1 line-clamp-2 text-sm text-[#64748b]">
+                <p className="mt-1 line-clamp-2 text-sm text-[#52627a]">
                   {repository.description ?? "AI-generated insights, docs, and diagrams for this repository."}
                 </p>
               </div>
@@ -42,7 +42,7 @@ export function RepoCard({
               <button
                 type="button"
                 onClick={() => onDelete?.(repository.id)}
-                className="rounded-lg p-2 text-slate-500 transition hover:bg-[#0f1117] hover:text-red-300"
+                className="rounded-md p-2 text-[#8a9ab0] transition hover:bg-red-50 hover:text-red-600"
               >
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -57,7 +57,7 @@ export function RepoCard({
             ))}
           </div>
 
-          <div className="flex items-center justify-between text-sm text-[#64748b]">
+          <div className="flex items-center justify-between text-sm text-[#52627a]">
             <span>{repository.language ?? "Unknown language"}</span>
             <span>{formatDate(repository.createdAt)}</span>
           </div>

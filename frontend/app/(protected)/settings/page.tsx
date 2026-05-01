@@ -1,24 +1,24 @@
 "use client";
 
-import { CheckCircle2, ShieldCheck, UserCircle2 } from "lucide-react";
+import { LogOut, ShieldCheck, UserCircle2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/context/auth-context";
 
 export default function SettingsPage() {
-  const { isAuthenticated, token, user } = useAuth();
+  const { isAuthenticated, logout, user } = useAuth();
 
   return (
     <div className="space-y-6">
-      <section className="glass-panel rounded-[2rem] p-8">
-        <p className="text-sm uppercase tracking-[0.4em] text-[color:var(--muted)]">
+      <section className="rounded-md border border-[#d7e7f7] bg-white p-8 text-[#172033] shadow-[0_18px_45px_rgba(37,99,235,0.08)]">
+        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#0ea5e9]">
           Settings
         </p>
-        <h1 className="mt-4 text-4xl font-semibold tracking-[-0.05em]">
+        <h1 className="mt-4 text-4xl font-bold tracking-tight text-[#10213f]">
           Workspace and account settings
         </h1>
-        <p className="mt-4 max-w-3xl text-sm leading-8 text-[color:var(--muted)]">
-          Review the current signed-in account, provider, and local frontend session status.
+        <p className="mt-4 max-w-3xl text-sm leading-8 text-[#52627a]">
+          Review the current signed-in account and connected provider.
         </p>
       </section>
 
@@ -26,14 +26,14 @@ export default function SettingsPage() {
         <Card>
           <CardContent className="space-y-5">
             <div className="flex items-center gap-3">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#0f1117] text-[#0d9488]">
+              <div className="flex h-14 w-14 items-center justify-center rounded-md bg-[#e0f2fe] text-[#2563eb]">
                 <UserCircle2 className="h-7 w-7" />
               </div>
               <div>
-                <h2 className="text-2xl font-semibold tracking-[-0.04em]">
+                <h2 className="text-2xl font-bold tracking-tight text-[#10213f]">
                   {user?.name ?? "RepoAI User"}
                 </h2>
-                <p className="text-sm text-[#64748b]">{user?.email ?? "No email loaded"}</p>
+                <p className="text-sm text-[#52627a]">{user?.email ?? "No email loaded"}</p>
               </div>
             </div>
 
@@ -44,52 +44,41 @@ export default function SettingsPage() {
               </Badge>
               {user?.githubConnected ? <Badge variant="accent">GitHub Connected</Badge> : null}
             </div>
+
+            <button
+              type="button"
+              onClick={logout}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#2563eb] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#1d4ed8]"
+            >
+              <LogOut className="h-4 w-4" />
+              Logout
+            </button>
           </CardContent>
         </Card>
 
-        <div className="space-y-4">
+        <div>
           <Card>
             <CardContent className="space-y-4">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="h-5 w-5 text-[#0d9488]" />
-                <h2 className="text-xl font-semibold tracking-[-0.04em]">Profile Details</h2>
+                <h2 className="text-xl font-bold tracking-tight text-[#10213f]">Profile Details</h2>
               </div>
-              <div className="grid gap-3 text-sm text-[#cbd5e1] md:grid-cols-2">
-                <div className="rounded-2xl border border-[#1e2230] bg-[#0f1117] px-4 py-3">
-                  <p className="text-xs uppercase tracking-[0.2em] text-[#64748b]">Name</p>
+              <div className="grid gap-3 text-sm text-[#172033] md:grid-cols-2">
+                <div className="rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-4 py-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[#8a9ab0]">Name</p>
                   <p className="mt-2">{user?.name ?? "Unknown"}</p>
                 </div>
-                <div className="rounded-2xl border border-[#1e2230] bg-[#0f1117] px-4 py-3">
-                  <p className="text-xs uppercase tracking-[0.2em] text-[#64748b]">Username</p>
+                <div className="rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-4 py-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[#8a9ab0]">Username</p>
                   <p className="mt-2">{user?.username ?? "Not available"}</p>
                 </div>
-                <div className="rounded-2xl border border-[#1e2230] bg-[#0f1117] px-4 py-3">
-                  <p className="text-xs uppercase tracking-[0.2em] text-[#64748b]">Provider</p>
+                <div className="rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-4 py-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[#8a9ab0]">Provider</p>
                   <p className="mt-2">{user?.provider ?? "LOCAL"}</p>
                 </div>
-                <div className="rounded-2xl border border-[#1e2230] bg-[#0f1117] px-4 py-3">
-                  <p className="text-xs uppercase tracking-[0.2em] text-[#64748b]">User ID</p>
-                  <p className="mt-2">{String(user?.id ?? "Unknown")}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="space-y-4">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-5 w-5 text-[#0d9488]" />
-                <h2 className="text-xl font-semibold tracking-[-0.04em]">Session Health</h2>
-              </div>
-              <div className="space-y-3 text-sm text-[#cbd5e1]">
-                <div className="rounded-2xl border border-[#1e2230] bg-[#0f1117] px-4 py-3">
-                  Frontend auth state: {isAuthenticated ? "active" : "inactive"}
-                </div>
-                <div className="rounded-2xl border border-[#1e2230] bg-[#0f1117] px-4 py-3">
-                  Stored token: {token ? "present" : "missing"}
-                </div>
-                <div className="rounded-2xl border border-[#1e2230] bg-[#0f1117] px-4 py-3">
-                  GitHub connection: {user?.githubConnected ? "connected" : "not connected"}
+                <div className="rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-4 py-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[#8a9ab0]">GitHub Connection</p>
+                  <p className="mt-2">{user?.githubConnected ? "Connected" : "Not connected"}</p>
                 </div>
               </div>
             </CardContent>

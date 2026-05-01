@@ -6,8 +6,10 @@ import { FileText, Sparkles, X } from "lucide-react";
 import { useEffect } from "react";
 import { axiosInstance } from "@/lib/api";
 import { AxiosError } from "axios";
+import { GenerationOverlay } from "@/components/generation-overlay";
+import { useNotifications } from "@/context/notification-context";
 import type { RepoDocument, RepositoryDetail, RepositorySummary } from "@/lib/types";
-import { downloadTextFile, formatDate, safeFilename } from "@/lib/utils";
+import { downloadTextAsPdf, downloadTextFile, formatDate, safeArtifactFilename } from "@/lib/utils";
 
 type DocumentationWorkspaceProps = {
   documents: RepoDocument[];
@@ -29,6 +31,7 @@ const generationOptions = [
 ] as const;
 
 export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProps) {
+  const { addNotification } = useNotifications();
   const [repositories, setRepositories] = useState<RepositorySummary[]>([]);
   const [selectedRepositoryId, setSelectedRepositoryId] = useState("");
   const [repositoryDocs, setRepositoryDocs] = useState<RepoDocument[]>(documents);
@@ -37,12 +40,17 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
   const [exportFormat, setExportFormat] = useState<"pdf" | "word">("word");
   const [isGenerateOpen, setIsGenerateOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generatingTitle, setGeneratingTitle] = useState<string | null>(null);
   const [generationMessage, setGenerationMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const selectedDoc = useMemo(
     () => repositoryDocs.find((document) => document.id === selectedDocId) ?? repositoryDocs[0] ?? null,
     [repositoryDocs, selectedDocId],
+  );
+  const selectedRepositoryName = useMemo(
+    () => repositories.find((repository) => String(repository.id) === selectedRepositoryId)?.name,
+    [repositories, selectedRepositoryId],
   );
 
   useEffect(() => {
@@ -81,40 +89,13 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
       });
   }, [documents, selectedRepositoryId]);
 
-  const exportAsPdf = (title: string, content: string) => {
-    const printWindow = window.open("", "_blank", "width=900,height=700");
-    if (!printWindow) {
-      return;
-    }
-
-    const escapedTitle = title
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;");
-    const escapedContent = content
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;");
-
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>${escapedTitle}</title>
-          <style>
-            body { font-family: Arial, sans-serif; margin: 32px; color: #111; }
-            h1 { margin-bottom: 16px; }
-            pre { white-space: pre-wrap; line-height: 1.5; font-size: 14px; }
-          </style>
-        </head>
-        <body>
-          <h1>${escapedTitle}</h1>
-          <pre>${escapedContent}</pre>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
+  const notifyDownload = (filename: string) => {
+    addNotification({
+      href: selectedRepositoryId ? `/repositories/${selectedRepositoryId}?tab=docs` : "/documentation",
+      message: filename,
+      title: "File downloaded",
+      type: "documentation",
+    });
   };
 
   const handleExport = () => {
@@ -122,16 +103,27 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
       return;
     }
 
+    const filenameBase = safeArtifactFilename(
+      selectedRepositoryName ?? selectedDoc.repositoryName,
+      selectedDoc.title,
+      "documentation",
+    );
+
     if (exportFormat === "word") {
+      const filename = `${filenameBase}.doc`;
       downloadTextFile(
         selectedDoc.content,
-        `${safeFilename(selectedDoc.title, "documentation")}.doc`,
+        filename,
         "application/msword;charset=utf-8",
       );
+      notifyDownload(filename);
       return;
     }
 
-    exportAsPdf(selectedDoc.title, selectedDoc.content);
+    const filename = `${filenameBase}.pdf`;
+    void downloadTextAsPdf(selectedDoc.content, filename, filenameBase)
+      .then(() => notifyDownload(filename))
+      .catch(() => setErrorMessage("PDF export failed. Please try again."));
   };
 
   const handleGenerate = async (title: string) => {
@@ -141,6 +133,7 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
     }
 
     setIsGenerating(true);
+    setGeneratingTitle(title);
     setErrorMessage(null);
     try {
       const response = await axiosInstance.post<RepoDocument>(
@@ -149,6 +142,12 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
       );
       setRepositoryDocs((current) => [response.data, ...current]);
       setSelectedDocId(response.data.id);
+      addNotification({
+        href: `/repositories/${selectedRepositoryId}?tab=docs&doc=${response.data.id}`,
+        message: `${response.data.title} is ready to view.`,
+        title: "Documentation generated",
+        type: "documentation",
+      });
       setGenerationMessage(`${title} generated.`);
       setIsGenerateOpen(false);
     } catch (error) {
@@ -159,21 +158,30 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
       setErrorMessage(apiMessage ?? `${title} could not be generated.`);
     } finally {
       setIsGenerating(false);
+      setGeneratingTitle(null);
     }
   };
 
   return (
-    <div className="space-y-4 text-black">
-      <section className="rounded-md border border-black/60 bg-[#f6f6f6]">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/50 px-6 py-3">
-          <h1 className="text-3xl font-semibold tracking-tight">Documentation</h1>
+    <div className="space-y-4 text-[#172033]">
+      <GenerationOverlay
+        open={isGenerating}
+        title={`Generating ${generatingTitle ?? "documentation"}`}
+        description="RepoAI is reading the indexed repository context and writing the documentation."
+      />
+      <section className="rounded-md border border-[#d7e7f7] bg-white shadow-[0_18px_45px_rgba(37,99,235,0.08)]">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#d7e7f7] px-6 py-4">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#0ea5e9]">Generated docs</p>
+            <h1 className="mt-1 text-3xl font-bold tracking-tight text-[#10213f]">Documentation</h1>
+          </div>
           <div className="flex items-center gap-2">
-            <label className="text-sm font-medium">Repository</label>
+            <label className="text-sm font-semibold text-[#10213f]">Repository</label>
             <select
               value={selectedRepositoryId}
               onChange={(event) => setSelectedRepositoryId(event.target.value)}
               disabled={isLoadingRepositories || repositories.length === 0}
-              className="min-w-[220px] rounded-sm border border-black/60 bg-[#fefefe] px-2 py-1.5 text-sm outline-none"
+              className="min-w-[220px] rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-2 py-1.5 text-sm outline-none focus:border-[#38bdf8]"
             >
               {isLoadingRepositories ? (
                 <option value="">Loading repositories...</option>
@@ -190,7 +198,7 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
             <button
               type="button"
               onClick={() => setIsGenerateOpen(true)}
-              className="rounded-sm border border-black/70 bg-black px-3 py-2 text-sm font-semibold text-white transition hover:bg-black/85"
+              className="rounded-md bg-[#2563eb] px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1d4ed8]"
             >
               Generate New
             </button>
@@ -199,12 +207,12 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
 
         <div className="space-y-3 p-4">
           {errorMessage ? (
-            <p className="rounded-sm border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
               {errorMessage}
             </p>
           ) : null}
           {repositoryDocs.length === 0 ? (
-            <div className="rounded-sm border border-dashed border-black/40 px-4 py-8 text-center text-sm text-black/60">
+            <div className="rounded-md border border-dashed border-[#bfdbfe] bg-[#f8fbff] px-4 py-8 text-center text-sm text-[#52627a]">
               No documentation generated yet.
             </div>
           ) : (
@@ -213,21 +221,21 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
                 key={document.id}
                 type="button"
                 onClick={() => setSelectedDocId(document.id)}
-                className="flex w-full items-center justify-between gap-4 rounded-sm border border-black/55 bg-[#f9f9f9] px-4 py-3 text-left hover:bg-black/5"
+                className="flex w-full items-center justify-between gap-4 rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-4 py-3 text-left transition hover:border-[#38bdf8] hover:bg-white"
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-black/80" />
-                    <h2 className="truncate text-lg font-semibold">{document.title}</h2>
+                    <FileText className="h-4 w-4 text-[#2563eb]" />
+                    <h2 className="truncate text-lg font-bold text-[#10213f]">{document.title}</h2>
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-black/60">
-                    <span className="rounded-sm border border-black/55 px-1.5 py-0.5 font-semibold text-black">
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[#8a9ab0]">
+                    <span className="rounded-md border border-[#bfdbfe] bg-[#eff6ff] px-1.5 py-0.5 font-semibold text-[#2563eb]">
                       {document.type ?? "Overview"}
                     </span>
                     <span>{formatDate(document.updatedAt)}</span>
                   </div>
                 </div>
-                <span className="rounded-sm border border-black/60 bg-[#fdfdfd] px-3 py-1.5 text-sm font-semibold">
+                <span className="rounded-md border border-[#d7e7f7] bg-white px-3 py-1.5 text-sm font-semibold text-[#2563eb]">
                   View
                 </span>
               </button>
@@ -237,11 +245,11 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
       </section>
 
       {selectedDoc ? (
-        <section className="rounded-md border border-black/60 bg-[#f7f7f7]">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/50 px-4 py-3">
+        <section className="rounded-md border border-[#d7e7f7] bg-white shadow-[0_18px_45px_rgba(37,99,235,0.08)]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#d7e7f7] px-4 py-3">
             <div>
-              <h2 className="text-xl font-semibold">{selectedDoc.title}</h2>
-              <p className="text-sm text-black/65">
+              <h2 className="text-xl font-bold text-[#10213f]">{selectedDoc.title}</h2>
+              <p className="text-sm text-[#52627a]">
                 {selectedDoc.repositoryName ?? "Unknown repository"}
               </p>
             </div>
@@ -250,7 +258,7 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
               <select
                 value={exportFormat}
                 onChange={(event) => setExportFormat(event.target.value as "pdf" | "word")}
-                className="rounded-sm border border-black/60 bg-[#fefefe] px-2 py-1.5 text-sm outline-none"
+                className="rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-2 py-1.5 text-sm outline-none focus:border-[#38bdf8]"
               >
                 <option value="word">Word (.doc)</option>
                 <option value="pdf">PDF (.pdf)</option>
@@ -258,7 +266,7 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
               <button
                 type="button"
                 onClick={handleExport}
-                className="rounded-sm border border-black bg-black px-3 py-1.5 text-sm font-semibold text-white hover:bg-black/85"
+                className="rounded-md bg-[#2563eb] px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-[#1d4ed8]"
               >
                 Download
               </button>
@@ -266,7 +274,7 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
           </div>
 
           <div className="p-4">
-            <div className="markdown-body max-h-[30rem] overflow-y-auto rounded-sm border border-black/30 bg-white p-4 text-black">
+            <div className="markdown-body max-h-[30rem] overflow-y-auto rounded-md border border-[#d7e7f7] bg-[#f8fbff] p-4 text-[#172033]">
               <ReactMarkdown>{selectedDoc.content}</ReactMarkdown>
             </div>
           </div>
@@ -274,42 +282,43 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
       ) : null}
 
       {generationMessage ? (
-        <p className="rounded-sm border border-black/30 bg-[#f7f7f7] px-3 py-2 text-sm text-black/75">
+        <p className="rounded-md border border-[#bfdbfe] bg-[#eff6ff] px-3 py-2 text-sm text-[#2563eb]">
           {generationMessage}
         </p>
       ) : null}
 
       {isGenerateOpen ? (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/35 p-4">
-          <div className="w-full max-w-[520px] rounded-xl border border-black/20 bg-[#f3f4f6] p-5">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#10213f]/35 p-4">
+          <div className="w-full max-w-[520px] rounded-md border border-[#d7e7f7] bg-white p-5 shadow-[0_24px_70px_rgba(37,99,235,0.18)]">
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Sparkles className="h-5 w-5" />
-                <h3 className="text-3xl font-semibold tracking-tight">Generate</h3>
+                <Sparkles className="h-5 w-5 text-[#2563eb]" />
+                <h3 className="text-3xl font-bold tracking-tight text-[#10213f]">Generate</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setIsGenerateOpen(false)}
-                className="rounded p-1 text-black/70 hover:bg-black/5"
+                disabled={isGenerating}
+                className="rounded p-1 text-[#52627a] hover:bg-[#edf6ff] hover:text-[#2563eb]"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-[repeat(auto-fit,minmax(180px,1fr))]">
               {generationOptions.map((option) => (
                 <button
                   key={option.title}
                   type="button"
                   onClick={() => handleGenerate(option.title)}
                   disabled={isGenerating}
-                  className="rounded-xl border border-black/20 bg-[#eceff3] px-4 py-4 text-left transition hover:border-black/40 hover:bg-[#e6e9ee]"
+                  className="min-w-0 rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-4 py-4 text-left transition hover:border-[#38bdf8] hover:bg-white"
                 >
                   <div className="flex items-start gap-2">
-                    <FileText className="mt-0.5 h-4 w-4 text-[#14b8a6]" />
+                    <FileText className="mt-0.5 h-4 w-4 text-[#2563eb]" />
                     <div>
-                      <p className="text-xl font-semibold text-black">{option.title}</p>
-                      <p className="mt-1 text-sm text-black/65">{option.description}</p>
+                      <p className="break-words text-lg font-bold text-[#10213f]">{option.title}</p>
+                      <p className="mt-1 break-words text-sm leading-6 text-[#52627a]">{option.description}</p>
                     </div>
                   </div>
                 </button>

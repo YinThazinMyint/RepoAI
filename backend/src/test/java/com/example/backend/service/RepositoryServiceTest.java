@@ -21,6 +21,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.Optional;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.Test;
@@ -119,6 +120,26 @@ class RepositoryServiceTest {
         assertEquals(RepositoryStatus.READY, savedRepository.getStatus());
         assertTrue(savedRepository.getTechStack().contains("Spring Boot"));
         assertTrue(savedRepository.getTechStack().contains("Maven"));
+    }
+
+    @Test
+    void deleteRepositoryRemovesOwnedRepositoryAndGeneratedArtifacts() {
+        Repository repository = Repository.builder()
+                .id(42L)
+                .ownerUserId(7L)
+                .name("sample-repo")
+                .build();
+
+        when(repositoryRepository.findByIdAndOwnerUserId(42L, 7L))
+                .thenReturn(Optional.of(repository));
+
+        repositoryService.deleteRepository(42L, 7L);
+
+        verify(repositoryChunkService).deleteRepositoryChunks(42L);
+        verify(aiQuestionRepository).deleteByRepositoryId(42L);
+        verify(diagramRepository).deleteByRepositoryId(42L);
+        verify(documentationRepository).deleteByRepositoryId(42L);
+        verify(repositoryRepository).delete(repository);
     }
 
     private String createSampleZipBase64() throws IOException {

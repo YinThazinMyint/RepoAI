@@ -13,4 +13,6 @@ public interface DocumentationRepository extends JpaRepository<Documentation, Lo
     List<Documentation> findByRepositoryIdOrderByUpdatedAtDesc(Long repositoryId);
 
     long countByRepositoryIdIn(List<Long> repositoryIds);
+
+    void deleteByRepositoryId(Long repositoryId);
 }

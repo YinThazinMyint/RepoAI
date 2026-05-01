@@ -333,6 +333,16 @@ public class RepositoryService {
         return generateDiagram(repositoryId, diagramType);
     }
 
+    @Transactional
+    public void deleteRepository(Long repositoryId, Long ownerUserId) {
+        Repository repository = requireOwnedRepository(repositoryId, ownerUserId);
+        repositoryChunkService.deleteRepositoryChunks(repository.getId());
+        aiQuestionRepository.deleteByRepositoryId(repository.getId());
+        diagramRepository.deleteByRepositoryId(repository.getId());
+        documentationRepository.deleteByRepositoryId(repository.getId());
+        repositoryRepository.delete(repository);
+    }
+
     private Repository storeGithubRepository(RepositoryDTO repositoryDTO) {
         return storeGithubRepository(repositoryDTO, null);
     }
@@ -823,7 +833,7 @@ public class RepositoryService {
         }
 
         try {
-            return openAiService.generateText(
+            String generated = openAiService.generateText(
                     "You generate Mermaid flowchart diagrams only. Return valid Mermaid code only.",
                     """
                             Repository name: %s
@@ -839,6 +849,8 @@ public class RepositoryService {
                             firstNonBlank(repository.getTechStack(), "Unknown")
                     )
             );
+            String sanitized = sanitizeMermaidCode(firstNonBlank(generated, fallback), "Flowchart");
+            return hasExpectedMermaidHeader(sanitized, "Flowchart") ? sanitized : fallback;
         } catch (Exception exception) {
             return fallback;
         }
@@ -852,6 +864,12 @@ public class RepositoryService {
         }
         if (normalized.contains("architecture")) {
             return "Architecture";
+        }
+        if (normalized.contains("class")) {
+            return "Class Diagram";
+        }
+        if (normalized.contains("er") || normalized.contains("entity") || normalized.contains("database")) {
+            return "ER Diagram";
         }
         return "Flowchart";
     }
@@ -868,8 +886,10 @@ public class RepositoryService {
                     """
                             You generate Mermaid.js diagrams for code repositories.
                             Return Mermaid code only, with no markdown fences and no explanation.
-                            Keep labels short and valid for Mermaid.
+                            Use the exact Mermaid diagram syntax requested.
+                            Include enough repository-specific detail to be useful, but keep labels short and valid for Mermaid.
                             Do not invent exact classes, endpoints, or services unless they appear in the context.
+                            Prefer real file names, classes, controllers, services, entities, tables, and integration names from the context.
                             """,
                     """
                             Diagram type: %s
@@ -899,7 +919,8 @@ public class RepositoryService {
                             diagramRequirements(title)
                     )
             );
-            return sanitizeMermaidCode(firstNonBlank(generated, fallback));
+            String sanitized = sanitizeMermaidCode(firstNonBlank(generated, fallback), title);
+            return hasExpectedMermaidHeader(sanitized, title) ? sanitized : fallback;
         } catch (Exception exception) {
             return fallback;
         }
@@ -910,8 +931,8 @@ public class RepositoryService {
             ensureRepositoryHasRagContext(repository);
             List<RepositoryChunkService.RetrievedChunk> chunks = repositoryChunkService.findRelevantChunks(
                     repository.getId(),
-                    "Generate " + title + " Mermaid diagram for repository structure, main components, and runtime flow.",
-                    10
+                    "Generate " + title + " Mermaid diagram using real repository components, routes, services, entities, data models, database tables, external APIs, and runtime flow.",
+                    14
             );
             return chunks.stream()
                     .map(chunk -> """
@@ -928,31 +949,106 @@ public class RepositoryService {
         if ("Sequence Diagram".equals(title)) {
             return """
                     Create a Mermaid sequenceDiagram.
-                    Show the most likely request/interaction path across user, frontend, backend/services, database, external APIs, and AI provider when relevant.
+                    Show a realistic interaction path across user, frontend, controllers/routes, services, repositories/database, external APIs, and AI provider when they appear in context.
+                    Use actor/participant declarations.
+                    Include at least 8 message arrows when context supports them.
+                    Use ->> for calls and -->> for responses.
                     Start the diagram with: sequenceDiagram
                     """;
         }
         if ("Architecture".equals(title)) {
             return """
                     Create a Mermaid flowchart LR system architecture diagram.
-                    Group frontend, backend, persistence, external integrations, and AI/RAG components when relevant.
+                    Group real repository components into subgraphs such as Frontend, Backend API, Services, Persistence, External Integrations, and AI/RAG when relevant.
+                    Include important controllers/pages, services, database tables/stores, GitHub/OpenAI integrations, and generated artifacts from the context.
+                    Use labelled arrows for major data flows.
                     Start the diagram with: flowchart LR
+                    """;
+        }
+        if ("Class Diagram".equals(title)) {
+            return """
+                    Create a Mermaid classDiagram.
+                    Include concrete classes/entities/interfaces found in the context and their main relationships.
+                    Use inheritance, composition, association, or dependency arrows only when supported by the context.
+                    Keep method/property lists short; include names only when visible in the context.
+                    Start the diagram with: classDiagram
+                    """;
+        }
+        if ("ER Diagram".equals(title)) {
+            return """
+                    Create a Mermaid erDiagram.
+                    Include concrete database entities/tables found in the context.
+                    Add important fields only when visible in the context.
+                    Show relationships only when foreign keys, repository fields, or entity references support them.
+                    Start the diagram with: erDiagram
                     """;
         }
         return """
                 Create a Mermaid flowchart TD.
-                Show the repository's main code or product flow from entry point through processing, storage, generation, and output.
+                Show the repository's main code/product flow from entry point through controllers/pages, services, storage, AI/RAG generation, and output.
+                Include real component names from the context.
+                Use subgraphs when they make the flow clearer.
+                Include at least 8 nodes when context supports them.
                 Start the diagram with: flowchart TD
                 """;
     }
 
-    private String sanitizeMermaidCode(String mermaidCode) {
+    private String sanitizeMermaidCode(String mermaidCode, String title) {
         String sanitized = mermaidCode.trim();
-        if (sanitized.startsWith("```")) {
-            sanitized = sanitized.replaceFirst("^```(?:mermaid)?\\s*", "");
-            sanitized = sanitized.replaceFirst("\\s*```$", "");
+        sanitized = sanitized.replaceFirst("(?is)^\\s*```(?:mermaid)?\\s*", "");
+        sanitized = sanitized.replaceFirst("(?is)\\s*```\\s*$", "");
+        sanitized = trimBeforeMermaidHeader(sanitized);
+        if (!hasExpectedMermaidHeader(sanitized, title) && hasAnyMermaidHeader(sanitized)) {
+            return sanitized;
         }
         return sanitized.trim();
+    }
+
+    private String trimBeforeMermaidHeader(String mermaidCode) {
+        String[] headers = {"flowchart TD", "flowchart LR", "sequenceDiagram", "classDiagram", "erDiagram"};
+        int firstIndex = -1;
+        for (String header : headers) {
+            int index = mermaidCode.indexOf(header);
+            if (index >= 0 && (firstIndex < 0 || index < firstIndex)) {
+                firstIndex = index;
+            }
+        }
+        return firstIndex > 0 ? mermaidCode.substring(firstIndex).trim() : mermaidCode.trim();
+    }
+
+    private boolean hasExpectedMermaidHeader(String mermaidCode, String title) {
+        if (!StringUtils.hasText(mermaidCode)) {
+            return false;
+        }
+        return mermaidCode.trim().startsWith(expectedMermaidHeader(title));
+    }
+
+    private boolean hasAnyMermaidHeader(String mermaidCode) {
+        if (!StringUtils.hasText(mermaidCode)) {
+            return false;
+        }
+        String trimmed = mermaidCode.trim();
+        return trimmed.startsWith("flowchart TD")
+                || trimmed.startsWith("flowchart LR")
+                || trimmed.startsWith("sequenceDiagram")
+                || trimmed.startsWith("classDiagram")
+                || trimmed.startsWith("erDiagram");
+    }
+
+    private String expectedMermaidHeader(String title) {
+        if ("Sequence Diagram".equals(title)) {
+            return "sequenceDiagram";
+        }
+        if ("Architecture".equals(title)) {
+            return "flowchart LR";
+        }
+        if ("Class Diagram".equals(title)) {
+            return "classDiagram";
+        }
+        if ("ER Diagram".equals(title)) {
+            return "erDiagram";
+        }
+        return "flowchart TD";
     }
 
     private String buildDiagramFallback(Repository repository, String title) {
@@ -961,6 +1057,12 @@ public class RepositoryService {
         }
         if ("Architecture".equals(title)) {
             return buildArchitectureDiagram(repository);
+        }
+        if ("Class Diagram".equals(title)) {
+            return buildClassDiagram(repository);
+        }
+        if ("ER Diagram".equals(title)) {
+            return buildErDiagram(repository);
         }
         return buildFlowchartDiagram(repository);
     }
@@ -1017,6 +1119,72 @@ public class RepositoryService {
                     API-->>UI: Return generated diagram
                     UI-->>User: Render Mermaid diagram
                 """.formatted(firstNonBlank(repository.getName(), "repository"));
+    }
+
+    private String buildClassDiagram(Repository repository) {
+        return """
+                classDiagram
+                    class Repository {
+                        Long id
+                        String name
+                        String language
+                        String techStack
+                        RepositoryStatus status
+                    }
+                    class Documentation {
+                        Long repositoryId
+                        String title
+                        String content
+                    }
+                    class Diagram {
+                        Long repositoryId
+                        String title
+                        String mermaidCode
+                    }
+                    class AIQuestion {
+                        Long repositoryId
+                        String questionText
+                        String answerText
+                    }
+                    Repository "1" --> "*" Documentation
+                    Repository "1" --> "*" Diagram
+                    Repository "1" --> "*" AIQuestion
+                """;
+    }
+
+    private String buildErDiagram(Repository repository) {
+        return """
+                erDiagram
+                    REPOSITORIES {
+                        bigint id
+                        string name
+                        string github_url
+                        string language
+                        string tech_stack
+                        string status
+                    }
+                    DOCUMENTATION {
+                        bigint id
+                        bigint repository_id
+                        string title
+                        text content
+                    }
+                    DIAGRAMS {
+                        bigint id
+                        bigint repository_id
+                        string title
+                        text mermaid_code
+                    }
+                    AI_QUESTIONS {
+                        bigint id
+                        bigint repository_id
+                        text question_text
+                        text answer_text
+                    }
+                    REPOSITORIES ||--o{ DOCUMENTATION : has
+                    REPOSITORIES ||--o{ DIAGRAMS : has
+                    REPOSITORIES ||--o{ AI_QUESTIONS : has
+                """;
     }
 
     private String generateOverviewAnswer(Repository repository, String sourceType) {
@@ -1288,12 +1456,14 @@ public class RepositoryService {
             return fallback;
         }
 
+        String context = loadDocumentationContext(repository, title);
         try {
             return openAiService.generateText(
                     """
                             You generate README-style markdown documentation for a code repository.
-                            Use only the repository metadata provided. Do not invent endpoints or modules.
-                            If details are unknown, say they need deeper source analysis.
+                            Use only the repository metadata and source context provided.
+                            Do not invent endpoints, modules, classes, or commands unless they appear in the context.
+                            If details are unknown, say which source files need deeper analysis.
                             Return markdown only.
                             """,
                     """
@@ -1306,6 +1476,9 @@ public class RepositoryService {
                             Lines of code: %s
                             Source reference: %s
 
+                            Repository source context:
+                            %s
+
                             Create useful documentation for this type.
                             """.formatted(
                             title,
@@ -1315,11 +1488,31 @@ public class RepositoryService {
                             firstNonBlank(repository.getTechStack(), "Unknown"),
                             repository.getFileCount() != null ? repository.getFileCount() : "Unknown",
                             repository.getLinesOfCode() != null ? repository.getLinesOfCode() : "Unknown",
-                            firstNonBlank(repository.getGithubUrl(), "Uploaded ZIP archive")
+                            firstNonBlank(repository.getGithubUrl(), "Uploaded ZIP archive"),
+                            firstNonBlank(context, "No indexed source context is available. Use metadata only.")
                     )
             );
         } catch (Exception exception) {
             return fallback;
+        }
+    }
+
+    private String loadDocumentationContext(Repository repository, String title) {
+        try {
+            ensureRepositoryHasRagContext(repository);
+            List<RepositoryChunkService.RetrievedChunk> chunks = repositoryChunkService.findRelevantChunks(
+                    repository.getId(),
+                    "Generate " + title + " for repository modules, APIs, components, configuration, setup, and runtime flow.",
+                    12
+            );
+            return chunks.stream()
+                    .map(chunk -> """
+                            File: %s
+                            %s
+                            """.formatted(chunk.filePath(), chunk.content()))
+                    .collect(Collectors.joining("\n---\n"));
+        } catch (Exception exception) {
+            return "";
         }
     }
 

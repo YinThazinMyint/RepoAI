@@ -94,6 +94,18 @@ public class RepositoryChunkService {
         }
     }
 
+    public void deleteRepositoryChunks(Long repositoryId) {
+        if (repositoryId == null) {
+            return;
+        }
+
+        try {
+            jdbcTemplate.update("DELETE FROM repository_chunks WHERE repository_id = ?", repositoryId);
+        } catch (DataAccessException exception) {
+            log.warn("Unable to delete RAG chunks for repository {}: {}", repositoryId, exception.getMessage());
+        }
+    }
+
     public List<RetrievedChunk> findRelevantChunks(Long repositoryId, String questionText, int topK) {
         if (repositoryId == null || !StringUtils.hasText(questionText) || !openAiService.isConfigured()) {
             return List.of();

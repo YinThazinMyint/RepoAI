@@ -16,7 +16,7 @@ function OAuthCallbackContent() {
       return;
     }
 
-    void setSessionFromToken(token).then(() => router.replace("/upload"));
+    void setSessionFromToken(token).then(() => router.replace("/repositories"));
   }, [router, searchParams, setSessionFromToken]);
 
   return (

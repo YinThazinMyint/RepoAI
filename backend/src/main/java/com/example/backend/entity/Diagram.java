@@ -55,6 +55,12 @@ public class Diagram {
         if (normalizedTitle.contains("architecture")) {
             return "Architecture";
         }
+        if (normalizedTitle.contains("class")) {
+            return "Class";
+        }
+        if (normalizedTitle.contains("er")) {
+            return "ER Diagram";
+        }
         return "Flowchart";
     }
 

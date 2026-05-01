@@ -91,22 +91,22 @@ export function ChatUI() {
   };
 
   return (
-    <section className="rounded-md border border-black/60 bg-[#f7f7f7] p-4 text-black">
+    <section className="rounded-md border border-[#d7e7f7] bg-white p-4 text-[#172033] shadow-[0_18px_45px_rgba(37,99,235,0.08)]">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">AI Chat</h2>
-          <p className="mt-1 text-sm text-black/65">
+          <h2 className="text-2xl font-bold tracking-tight text-[#10213f]">AI Chat</h2>
+          <p className="mt-1 text-sm text-[#52627a]">
             Select a repository first, then ask questions about that specific codebase.
           </p>
         </div>
 
         <div className="min-w-[220px] space-y-1.5">
-          <label className="block text-sm font-medium">Repository</label>
+          <label className="block text-sm font-semibold text-[#10213f]">Repository</label>
           <select
             value={selectedRepositoryId}
             onChange={(event) => setSelectedRepositoryId(event.target.value)}
             disabled={isLoadingRepositories || repositories.length === 0}
-            className="w-full rounded-md border border-black/35 bg-[#fbfbfb] px-3 py-2 text-sm outline-none focus:border-black/70 disabled:cursor-not-allowed disabled:opacity-70"
+            className="w-full rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-3 py-2 text-sm text-[#172033] outline-none focus:border-[#38bdf8] focus:bg-white disabled:cursor-not-allowed disabled:opacity-70"
           >
             {isLoadingRepositories ? (
               <option value="">Loading repositories...</option>
@@ -125,9 +125,9 @@ export function ChatUI() {
 
       <div className="mb-4 space-y-2">
         {selectedRepositoryId ? (
-          <p className="text-sm text-black/65">
+          <p className="text-sm text-[#52627a]">
             Showing conversation for{" "}
-            <span className="font-semibold text-black">
+            <span className="font-semibold text-[#10213f]">
               {repositories.find((repository) => String(repository.id) === selectedRepositoryId)?.name ?? "Selected repository"}
             </span>
             .
@@ -140,28 +140,28 @@ export function ChatUI() {
         ) : null}
       </div>
 
-      <div className="max-h-[28rem] space-y-3 overflow-y-auto rounded-md border border-black/35 bg-[#fbfbfb] p-3">
+      <div className="max-h-[28rem] space-y-3 overflow-y-auto rounded-md border border-[#d7e7f7] bg-[#f8fbff] p-3">
         {isLoadingConversation ? (
-          <div className="rounded-md border border-dashed border-black/35 px-4 py-8 text-center text-sm text-black/55">
+          <div className="rounded-md border border-dashed border-[#bfdbfe] px-4 py-8 text-center text-sm text-[#52627a]">
             Loading conversation...
           </div>
         ) : conversation.length === 0 ? (
-          <div className="rounded-md border border-dashed border-black/35 px-4 py-8 text-center text-sm text-black/55">
+          <div className="rounded-md border border-dashed border-[#bfdbfe] px-4 py-8 text-center text-sm text-[#52627a]">
             No saved conversation yet for this repository. Ask the first question to start.
           </div>
         ) : (
           conversation.map((message) => (
             <div key={message.id} className="space-y-2">
-              <div className="ml-auto max-w-[88%] rounded-md border border-black bg-black px-3 py-2 text-sm text-white">
+              <div className="ml-auto max-w-[88%] rounded-md bg-[#2563eb] px-3 py-2 text-sm font-medium text-white shadow-sm">
                 {message.questionText}
               </div>
 
-              <div className="max-w-[92%] rounded-md border border-black/35 bg-white px-3 py-2 text-sm text-black">
+              <div className="max-w-[92%] rounded-md border border-[#d7e7f7] bg-white px-3 py-2 text-sm text-[#172033]">
                 <div className="markdown-body">
                   <ReactMarkdown>{message.answerText ?? "Thinking..."}</ReactMarkdown>
                 </div>
                 {message.respondedAt ? (
-                  <p className="mt-2 text-xs text-black/55">
+                  <p className="mt-2 text-xs text-[#8a9ab0]">
                     {formatDate(message.respondedAt)}
                   </p>
                 ) : null}
@@ -177,13 +177,13 @@ export function ChatUI() {
           onChange={(event) => setQuestion(event.target.value)}
           rows={4}
           placeholder="Ask a question about the selected repository..."
-          className="w-full rounded-md border border-black/35 bg-[#fbfbfb] px-3 py-2 text-sm outline-none focus:border-black/70"
+          className="w-full rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-3 py-2 text-sm text-[#172033] outline-none placeholder:text-[#8a9ab0] focus:border-[#38bdf8] focus:bg-white"
         />
         <div className="flex justify-end">
           <button
             type="submit"
             disabled={isSubmitting || !selectedRepositoryId}
-            className="rounded-md border border-black bg-black px-4 py-2 text-sm font-semibold text-white transition hover:bg-black/85 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSubmitting ? "Sending..." : "Send question"}
           </button>

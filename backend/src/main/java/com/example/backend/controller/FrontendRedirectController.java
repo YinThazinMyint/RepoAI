@@ -12,6 +12,6 @@ public class FrontendRedirectController {
 
     @GetMapping("/dashboard")
     public String redirectDashboard() {
-        return "redirect:" + frontendUrl + "/upload";
+        return "redirect:" + frontendUrl + "/repositories";
     }
 }

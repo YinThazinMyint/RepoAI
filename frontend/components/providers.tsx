@@ -1,6 +1,7 @@
 "use client";
 
 import { AuthProvider } from "@/context/auth-context";
+import { NotificationProvider } from "@/context/notification-context";
 import { useEffect, useState } from "react";
 import { AppShellProvider } from "@/hooks/use-app-shell";
 
@@ -21,11 +22,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthProvider>
-      <AppShellProvider theme={theme} setTheme={setTheme}>
-        <div data-theme={theme} className="min-h-screen" suppressHydrationWarning>
-          {children}
-        </div>
-      </AppShellProvider>
+      <NotificationProvider>
+        <AppShellProvider theme={theme} setTheme={setTheme}>
+          <div data-theme={theme} className="min-h-screen" suppressHydrationWarning>
+            {children}
+          </div>
+        </AppShellProvider>
+      </NotificationProvider>
     </AuthProvider>
   );
 }

@@ -79,9 +79,12 @@ export default function DashboardPage() {
   }, []);
 
   return (
-    <div className="space-y-6 text-black">
+    <div className="space-y-6 text-[#172033]">
       <section className="flex items-center justify-between gap-4">
-        <h1 className="text-4xl font-semibold tracking-tight">Dashboard</h1>
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#0ea5e9]">Workspace</p>
+          <h1 className="mt-1 text-4xl font-bold tracking-tight text-[#10213f]">Dashboard</h1>
+        </div>
         <DashboardAddRepositoryButton />
       </section>
 
@@ -92,40 +95,40 @@ export default function DashboardPage() {
           return (
             <div
               key={card.key}
-              className="rounded-md border border-black/60 bg-[#f6f6f6] px-5 py-4 shadow-[0_1px_0_rgba(0,0,0,0.08)]"
+              className="rounded-md border border-[#d7e7f7] bg-white px-5 py-4 shadow-[0_18px_45px_rgba(37,99,235,0.08)]"
             >
-              <p className="text-5xl font-semibold leading-none">{value}</p>
-              <p className="mt-2 text-base font-semibold">{card.label}</p>
+              <p className="text-5xl font-bold leading-none text-[#2563eb]">{value}</p>
+              <p className="mt-2 text-base font-semibold text-[#52627a]">{card.label}</p>
             </div>
           );
         })}
       </section>
 
       <section className="grid gap-4 lg:grid-cols-3">
-        <div className="overflow-hidden rounded-md border border-black/70 bg-[#f6f6f6] lg:col-span-2">
-          <div className="border-b border-black/70 px-5 py-4">
-            <h2 className="text-[30px] font-semibold tracking-tight">Recent Repositories</h2>
+        <div className="overflow-hidden rounded-md border border-[#d7e7f7] bg-white shadow-[0_18px_45px_rgba(37,99,235,0.08)] lg:col-span-2">
+          <div className="border-b border-[#d7e7f7] px-5 py-4">
+            <h2 className="text-[30px] font-bold tracking-tight text-[#10213f]">Recent Repositories</h2>
           </div>
           <div>
             {repositories.length === 0 ? (
-              <p className="px-5 py-5 text-sm text-black/60">No repositories added yet.</p>
+              <p className="px-5 py-5 text-sm text-[#52627a]">No repositories added yet.</p>
             ) : (
               repositories.slice(0, 5).map((repository, index) => (
                 <div
                   key={repository.id}
-                  className={`px-5 py-4 ${index > 0 ? "border-t border-black/35" : ""}`}
+                  className={`px-5 py-4 ${index > 0 ? "border-t border-[#d7e7f7]" : ""}`}
                 >
                   <Link
                     href={`/repositories/${repository.id}`}
-                    className="text-xl font-semibold tracking-tight hover:underline"
+                    className="text-xl font-bold tracking-tight text-[#10213f] hover:text-[#2563eb]"
                   >
                     {repository.name}
                   </Link>
                   <div className="mt-2 flex items-center gap-3 text-sm">
-                    <span className="rounded border border-black/60 px-2 py-0.5 font-medium">
+                    <span className="rounded-md border border-[#bfdbfe] bg-[#eff6ff] px-2 py-0.5 font-semibold text-[#2563eb]">
                       {repository.language ?? "Unknown"}
                     </span>
-                    <span className="text-black/65">{formatRelativeTime(repository.createdAt)}</span>
+                    <span className="text-[#52627a]">{formatRelativeTime(repository.createdAt)}</span>
                   </div>
                 </div>
               ))
@@ -133,19 +136,19 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-md border border-black/70 bg-[#f6f6f6]">
-          <div className="border-b border-black/70 px-5 py-4">
-            <h2 className="text-[30px] font-semibold tracking-tight">Recent Activity</h2>
+        <div className="overflow-hidden rounded-md border border-[#d7e7f7] bg-white shadow-[0_18px_45px_rgba(37,99,235,0.08)]">
+          <div className="border-b border-[#d7e7f7] px-5 py-4">
+            <h2 className="text-[30px] font-bold tracking-tight text-[#10213f]">Recent Activity</h2>
           </div>
           <div>
             {recentQuestions.length === 0 ? (
-              <p className="px-5 py-5 text-sm text-black/60">No recent activity.</p>
+              <p className="px-5 py-5 text-sm text-[#52627a]">No recent activity.</p>
             ) : (
               recentQuestions.slice(0, 5).map((question, index) => (
-                <div key={question.id} className={`px-5 py-4 ${index > 0 ? "border-t border-black/35" : ""}`}>
-                  <p className="text-lg font-semibold tracking-tight">{question.questionText}</p>
-                  <p className="mt-1 text-sm text-black/70">{question.repositoryName ?? "Unknown repository"}</p>
-                  <p className="mt-1 text-sm text-black/65">
+                <div key={question.id} className={`px-5 py-4 ${index > 0 ? "border-t border-[#d7e7f7]" : ""}`}>
+                  <p className="text-lg font-bold tracking-tight text-[#10213f]">{question.questionText}</p>
+                  <p className="mt-1 text-sm text-[#52627a]">{question.repositoryName ?? "Unknown repository"}</p>
+                  <p className="mt-1 text-sm text-[#8a9ab0]">
                     {formatRelativeTime(question.respondedAt)}
                   </p>
                 </div>

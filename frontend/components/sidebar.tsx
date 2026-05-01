@@ -25,15 +25,18 @@ export function Sidebar() {
 
   return (
     <aside
-      className="fixed left-0 top-0 z-50 flex h-screen w-[260px] flex-col border-r border-black/35 bg-[#f3f3f2]"
+      className="fixed left-0 top-0 z-50 flex h-screen w-[260px] flex-col border-r border-[#d7e7f7] bg-white shadow-[12px_0_40px_rgba(37,99,235,0.08)]"
     >
       <div className="flex items-center gap-3 px-5 pb-4 pt-4">
-        <div className="flex h-9 w-9 items-center justify-center rounded-md border-2 border-black text-base font-semibold text-black">
+        <div className="flex h-9 w-9 items-center justify-center rounded-md bg-[#2563eb] text-base font-bold text-white shadow-sm">
           RA
         </div>
-        <p className="text-lg font-semibold leading-none tracking-tight text-black">RepoAI</p>
+        <div>
+          <p className="text-lg font-bold leading-none tracking-tight text-[#10213f]">RepoAI</p>
+          <p className="mt-1 text-xs font-semibold text-[#0ea5e9]">Code intelligence</p>
+        </div>
       </div>
-      <div className="border-t border-black/25" />
+      <div className="border-t border-[#d7e7f7]" />
 
       <nav className="flex-1 space-y-1.5 px-4 py-5">
         {navigationItems.map((item) => {
@@ -44,10 +47,10 @@ export function Sidebar() {
             <Link key={`${item.href}-${item.label}`} href={item.href}>
               <div
                 className={cn(
-                  "relative flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium text-black transition-colors",
+                  "relative flex items-center gap-3 rounded-md px-4 py-3 text-sm font-semibold text-[#52627a] transition-colors",
                   active
-                    ? "border border-black bg-black text-white shadow-[0_1px_0_rgba(0,0,0,0.5)]"
-                    : "border border-transparent hover:border-black/20 hover:bg-black/5",
+                    ? "bg-[#2563eb] text-white shadow-sm"
+                    : "hover:bg-[#edf6ff] hover:text-[#2563eb]",
                 )}
               >
                 <Icon className="h-5 w-5 shrink-0" />
@@ -57,14 +60,14 @@ export function Sidebar() {
           );
         })}
       </nav>
-      <div className="border-t border-black/25" />
+      <div className="border-t border-[#d7e7f7]" />
 
       <div className="px-4 py-4">
         <Link
           href="/settings"
           className={cn(
-            "flex w-full items-center justify-center gap-2.5 rounded-lg border border-black/30 bg-[#f6f6f5] px-4 py-2.5 text-sm font-medium text-black transition-colors hover:bg-black/5",
-            pathname.startsWith("/settings") && "border-black bg-black text-white hover:bg-black",
+            "flex w-full items-center justify-center gap-2.5 rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-4 py-2.5 text-sm font-semibold text-[#52627a] transition-colors hover:border-[#38bdf8] hover:text-[#2563eb]",
+            pathname.startsWith("/settings") && "border-[#2563eb] bg-[#2563eb] text-white hover:bg-[#1d4ed8] hover:text-white",
           )}
         >
           <Settings className="h-[18px] w-[18px]" />

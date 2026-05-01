@@ -15,13 +15,23 @@ import {
   Waypoints,
 } from "lucide-react";
 import { MermaidDiagram } from "@/components/mermaid-diagram";
+import { GenerationOverlay } from "@/components/generation-overlay";
 import { StatusBadge } from "@/components/status-badge";
+import { useNotifications } from "@/context/notification-context";
 import { axiosInstance } from "@/lib/api";
 import { AxiosError } from "axios";
 import type { AIMessage, RepoDiagram, RepoDocument, RepositoryDetail } from "@/lib/types";
-import { downloadTextFile, formatDate, safeFilename } from "@/lib/utils";
+import {
+  downloadSvgMarkupAsPng,
+  downloadSvgMarkupAsPdf,
+  downloadTextAsPdf,
+  downloadTextFile,
+  formatDate,
+  safeArtifactFilename,
+} from "@/lib/utils";
+import { renderMermaidForExport } from "@/lib/mermaid-export";
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 
 const generationCards = [
   {
@@ -54,10 +64,22 @@ const generationCards = [
     icon: GitBranch,
     title: "Sequence Diagram",
   },
+  {
+    description: "Classes and relationships",
+    icon: FileCode2,
+    title: "Class Diagram",
+  },
+  {
+    description: "Database entities",
+    icon: Network,
+    title: "ER Diagram",
+  },
 ] as const;
 
 export default function RepositoryDetailPage() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
+  const { addNotification } = useNotifications();
   const [detail, setDetail] = useState<RepositoryDetail | null>(null);
   const [activeTab, setActiveTab] = useState("chat");
   const [activeDocId, setActiveDocId] = useState<number | null>(null);
@@ -65,6 +87,7 @@ export default function RepositoryDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [isGeneratingDoc, setIsGeneratingDoc] = useState(false);
+  const [generatingTitle, setGeneratingTitle] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const repoId = params.id ?? "1";
 
@@ -80,6 +103,18 @@ export default function RepositoryDetailPage() {
       })
       .finally(() => setIsLoading(false));
   }, [repoId]);
+
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab === "chat" || tab === "docs" || tab === "diagrams") {
+      setActiveTab(tab);
+    }
+
+    const docId = Number(searchParams.get("doc"));
+    if (Number.isFinite(docId) && docId > 0) {
+      setActiveDocId(docId);
+    }
+  }, [searchParams]);
 
   const selectedDoc =
     detail?.docs.find((doc) => doc.id === activeDocId) ?? detail?.docs[0] ?? null;
@@ -144,6 +179,7 @@ export default function RepositoryDetailPage() {
     }
 
     setIsGeneratingDoc(true);
+    setGeneratingTitle(title);
     setErrorMessage(null);
     try {
       const response = await axiosInstance.post<RepoDocument>(
@@ -160,6 +196,12 @@ export default function RepositoryDetailPage() {
       );
       setActiveDocId(response.data.id);
       setActiveTab("docs");
+      addNotification({
+        href: `/repositories/${repoId}?tab=docs&doc=${response.data.id}`,
+        message: `${response.data.title} is ready to view for ${detail.repository.name}.`,
+        title: "Documentation generated",
+        type: "documentation",
+      });
     } catch (error) {
       const apiMessage =
         error instanceof AxiosError && typeof error.response?.data?.message === "string"
@@ -168,6 +210,7 @@ export default function RepositoryDetailPage() {
       setErrorMessage(apiMessage ?? `${title} could not be generated.`);
     } finally {
       setIsGeneratingDoc(false);
+      setGeneratingTitle(null);
     }
   };
 
@@ -177,6 +220,7 @@ export default function RepositoryDetailPage() {
     }
 
     setIsGeneratingDoc(true);
+    setGeneratingTitle(title);
     setErrorMessage(null);
     try {
       const response = await axiosInstance.post<RepoDiagram>(
@@ -192,6 +236,12 @@ export default function RepositoryDetailPage() {
           : current,
       );
       setActiveTab("diagrams");
+      addNotification({
+        href: `/repositories/${repoId}?tab=diagrams&diagram=${response.data.id}`,
+        message: `${response.data.title} is ready to view for ${detail.repository.name}.`,
+        title: "Diagram generated",
+        type: "diagram",
+      });
     } catch (error) {
       const apiMessage =
         error instanceof AxiosError && typeof error.response?.data?.message === "string"
@@ -200,134 +250,69 @@ export default function RepositoryDetailPage() {
       setErrorMessage(apiMessage ?? `${title} could not be generated.`);
     } finally {
       setIsGeneratingDoc(false);
+      setGeneratingTitle(null);
     }
   };
 
-  const escapeHtml = (value: string) =>
-    value
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;");
+  const notifyDownload = (filename: string, type: "diagram" | "documentation") => {
+    addNotification({
+      href: `/repositories/${repoId}?tab=${type === "documentation" ? "docs" : "diagrams"}`,
+      message: filename,
+      title: "File downloaded",
+      type,
+    });
+  };
 
   const downloadDocumentationAsWord = (doc: RepoDocument) => {
+    const filenameBase = safeArtifactFilename(detail?.repository.name, doc.title, "documentation");
+    const filename = `${filenameBase}.doc`;
+
     downloadTextFile(
       doc.content,
-      `${safeFilename(doc.title, "documentation")}.doc`,
+      filename,
       "application/msword;charset=utf-8",
     );
+    notifyDownload(filename, "documentation");
   };
 
   const downloadDocumentationAsPdf = (doc: RepoDocument) => {
-    const printWindow = window.open("", "_blank", "width=900,height=700");
-    if (!printWindow) {
-      return;
-    }
+    const filenameBase = safeArtifactFilename(detail?.repository.name, doc.title, "documentation");
+    const filename = `${filenameBase}.pdf`;
 
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>${escapeHtml(doc.title)}</title>
-          <style>
-            body { font-family: Arial, sans-serif; margin: 32px; color: #111; }
-            h1 { margin-bottom: 16px; }
-            pre { white-space: pre-wrap; line-height: 1.55; font-size: 14px; }
-          </style>
-        </head>
-        <body>
-          <h1>${escapeHtml(doc.title)}</h1>
-          <pre>${escapeHtml(doc.content)}</pre>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
-  };
-
-  const getDiagramSvgMarkup = (diagramId: number) => {
-    const svg = document.getElementById(`diagram-preview-${diagramId}`)?.querySelector("svg");
-    if (!svg) {
-      return null;
-    }
-    return {
-      bounds: svg.getBoundingClientRect(),
-      markup: new XMLSerializer().serializeToString(svg),
-    };
+    void downloadTextAsPdf(doc.content, filename, filenameBase)
+      .then(() => notifyDownload(filename, "documentation"))
+      .catch(() => setErrorMessage("PDF export failed. Please try again."));
   };
 
   const downloadDiagramAsPng = (diagram: RepoDiagram) => {
-    const svg = getDiagramSvgMarkup(diagram.id);
-    if (!svg) {
-      return;
-    }
+    const filenameBase = safeArtifactFilename(detail?.repository.name, diagram.title, "diagram");
+    const filename = `${filenameBase}.png`;
 
-    const width = Math.max(Math.round(svg.bounds.width || 1200), 600);
-    const height = Math.max(Math.round(svg.bounds.height || 800), 400);
-    const blob = new Blob([svg.markup], { type: "image/svg+xml;charset=utf-8" });
-    const blobUrl = URL.createObjectURL(blob);
-    const image = new Image();
-
-    image.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = width * 2;
-      canvas.height = height * 2;
-      const context = canvas.getContext("2d");
-      if (!context) {
-        URL.revokeObjectURL(blobUrl);
-        return;
-      }
-
-      context.fillStyle = "#ffffff";
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      context.scale(2, 2);
-      context.drawImage(image, 0, 0, width, height);
-
-      const anchor = document.createElement("a");
-      anchor.href = canvas.toDataURL("image/png");
-      anchor.download = `${safeFilename(diagram.title, "diagram")}.png`;
-      anchor.click();
-      URL.revokeObjectURL(blobUrl);
-    };
-
-    image.src = blobUrl;
+    void renderMermaidForExport(diagram.mermaidCode)
+      .then((svgMarkup) => downloadSvgMarkupAsPng(svgMarkup, filename))
+      .then(() => notifyDownload(filename, "diagram"))
+      .catch(() => setErrorMessage("PNG export failed. Try downloading Mermaid or PDF instead."));
   };
 
   const downloadDiagramAsPdf = (diagram: RepoDiagram) => {
-    const svg = getDiagramSvgMarkup(diagram.id);
-    if (!svg) {
-      return;
-    }
+    const filenameBase = safeArtifactFilename(detail?.repository.name, diagram.title, "diagram");
+    const filename = `${filenameBase}.pdf`;
 
-    const printWindow = window.open("", "_blank", "width=1000,height=800");
-    if (!printWindow) {
-      return;
-    }
+    void renderMermaidForExport(diagram.mermaidCode)
+      .then((svgMarkup) => downloadSvgMarkupAsPdf(svgMarkup, filename, filenameBase))
+      .then(() => notifyDownload(filename, "diagram"))
+      .catch(() => setErrorMessage("PDF export failed. Try downloading Mermaid instead."));
+  };
 
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>${escapeHtml(diagram.title)}</title>
-          <style>
-            body { margin: 24px; font-family: Arial, sans-serif; color: #111; }
-            h1 { margin-bottom: 16px; font-size: 20px; }
-            .diagram { border: 1px solid #ccc; padding: 12px; }
-            svg { width: 100%; height: auto; }
-          </style>
-        </head>
-        <body>
-          <h1>${escapeHtml(diagram.title)}</h1>
-          <div class="diagram">${svg.markup}</div>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
+  const downloadDiagramAsMmd = (diagram: RepoDiagram) => {
+    const filename = `${safeArtifactFilename(detail?.repository.name, diagram.title, "diagram")}.mmd`;
+    downloadTextFile(diagram.mermaidCode, filename, "text/plain;charset=utf-8");
+    notifyDownload(filename, "diagram");
   };
 
   if (isLoading) {
     return (
-      <div className="rounded-[2rem] border border-[#1e2230] bg-[#13161e] p-7 text-sm text-[#94a3b8]">
+      <div className="rounded-md border border-[#d7e7f7] bg-white p-7 text-sm text-[#52627a] shadow-[0_18px_45px_rgba(37,99,235,0.08)]">
         Loading repository {repoId}...
       </div>
     );
@@ -338,12 +323,12 @@ export default function RepositoryDetailPage() {
       <div className="space-y-5">
         <Link
           href="/repositories"
-          className="inline-flex items-center gap-2 text-sm font-medium text-[#64748b] transition hover:text-slate-200"
+          className="inline-flex items-center gap-2 text-sm font-semibold text-[#52627a] transition hover:text-[#2563eb]"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Repositories
         </Link>
-        <div className="rounded-[2rem] border border-red-500/40 bg-[#13161e] p-7 text-sm text-red-200">
+        <div className="rounded-md border border-red-300 bg-red-50 p-7 text-sm text-red-700">
           {errorMessage ?? `Repository ${repoId} could not be loaded.`}
         </div>
       </div>
@@ -352,29 +337,34 @@ export default function RepositoryDetailPage() {
 
   return (
     <div className="space-y-6">
+      <GenerationOverlay
+        open={isGeneratingDoc}
+        title={`Generating ${generatingTitle ?? "artifact"}`}
+        description="RepoAI is using repository context to create the requested documentation or diagram."
+      />
       <Link
         href="/repositories"
-        className="inline-flex items-center gap-2 text-sm font-medium text-[#64748b] transition hover:text-slate-200"
+        className="inline-flex items-center gap-2 text-sm font-semibold text-[#52627a] transition hover:text-[#2563eb]"
       >
         <ArrowLeft className="h-4 w-4" />
         Back to Repositories
       </Link>
 
-      <section className="rounded-[2rem] border border-[#1e2230] bg-[#13161e] p-7 shadow-[0_12px_40px_rgba(0,0,0,0.24)]">
+      <section className="rounded-md border border-[#d7e7f7] bg-white p-7 shadow-[0_18px_45px_rgba(37,99,235,0.08)]">
         <div className="flex flex-wrap items-start gap-5">
-          <div className="flex h-16 w-16 items-center justify-center rounded-[1.6rem] bg-[#0d9488]/12 text-[#5eead4]">
+          <div className="flex h-16 w-16 items-center justify-center rounded-md bg-[#e0f2fe] text-[#2563eb]">
             <FileCode2 className="h-8 w-8" />
           </div>
 
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-4">
-              <h1 className="text-3xl font-semibold tracking-[-0.05em] text-slate-50 md:text-4xl">
+              <h1 className="text-3xl font-bold tracking-tight text-[#10213f] md:text-4xl">
                 {detail.repository.name}
               </h1>
               <StatusBadge status={detail.repository.status} />
             </div>
 
-            <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm text-[#94a3b8]">
+            <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm text-[#52627a]">
               <span>{detail.repository.language || "Unknown language"}</span>
               <span>
                 {detail.repository.fileCount ? `${detail.repository.fileCount} files` : "Files not scanned yet"}
@@ -392,7 +382,7 @@ export default function RepositoryDetailPage() {
                 {techTags.map((tag) => (
                   <span
                     key={tag}
-                    className="rounded-full border border-[#2a3144] bg-[#0f1117] px-3 py-1 text-sm text-slate-200"
+                    className="rounded-md border border-[#bfdbfe] bg-[#eff6ff] px-3 py-1 text-sm font-semibold text-[#2563eb]"
                   >
                     {tag}
                   </span>
@@ -403,7 +393,7 @@ export default function RepositoryDetailPage() {
         </div>
       </section>
 
-      <div className="flex flex-wrap gap-2 rounded-[1.2rem] border border-[#1e2230] bg-[#13161e] p-2">
+      <div className="flex flex-wrap gap-2 rounded-md border border-[#d7e7f7] bg-white p-2 shadow-[0_18px_45px_rgba(37,99,235,0.08)]">
         {[
           { id: "chat", icon: Bot, label: `AI Chat` },
           { id: "docs", icon: FileText, label: `Docs (${detail.docs.length})` },
@@ -418,8 +408,8 @@ export default function RepositoryDetailPage() {
               onClick={() => setActiveTab(tab.id)}
               className={`inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${
                 activeTab === tab.id
-                  ? "bg-[#0f1117] text-slate-50 shadow-[inset_0_0_0_1px_#2a3144]"
-                  : "text-[#94a3b8] hover:bg-[#171b24] hover:text-slate-50"
+                  ? "bg-[#2563eb] text-white shadow-sm"
+                  : "text-[#52627a] hover:bg-[#edf6ff] hover:text-[#2563eb]"
               }`}
             >
               <Icon className="h-4 w-4" />
@@ -429,14 +419,14 @@ export default function RepositoryDetailPage() {
         })}
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.55fr_0.75fr]">
-        <section className="rounded-[2rem] border border-[#1e2230] bg-[#13161e] p-7 shadow-[0_12px_40px_rgba(0,0,0,0.24)]">
+      <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,0.75fr)]">
+        <section className="rounded-md border border-[#d7e7f7] bg-white p-7 shadow-[0_18px_45px_rgba(37,99,235,0.08)]">
           {activeTab === "chat" ? (
             <div className="space-y-6">
               <div>
                 <div className="flex items-center gap-2">
-                  <Bot className="h-5 w-5 text-[#5eead4]" />
-                  <h2 className="text-3xl font-semibold tracking-[-0.04em] text-slate-50">
+                  <Bot className="h-5 w-5 text-[#2563eb]" />
+                  <h2 className="text-3xl font-bold tracking-tight text-[#10213f]">
                     Ask AI
                   </h2>
                 </div>
@@ -447,49 +437,49 @@ export default function RepositoryDetailPage() {
                     onChange={(event) => setMessage(event.target.value)}
                     rows={3}
                     placeholder="Ask anything about this codebase..."
-                    className="min-h-[74px] flex-1 rounded-[1.2rem] border border-[#2a3144] bg-[#0f1117] px-4 py-4 text-sm text-slate-100 outline-none placeholder:text-[#64748b] focus:border-[#0d9488]"
+                    className="min-h-[74px] flex-1 rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-4 py-4 text-sm text-[#172033] outline-none placeholder:text-[#8a9ab0] focus:border-[#38bdf8] focus:bg-white"
                   />
                   <button
                     type="button"
                     onClick={submitQuestion}
                     disabled={isSubmitting}
-                    className="mt-auto inline-flex h-12 w-12 items-center justify-center rounded-[1rem] bg-[#7dd3cf] text-[#0f172a] transition hover:bg-[#99f6e4] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="mt-auto inline-flex h-12 w-12 items-center justify-center rounded-md bg-[#2563eb] text-white transition hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Send className="h-5 w-5" />
                   </button>
                 </div>
                 {errorMessage ? (
-                  <p className="mt-3 rounded-[1rem] border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                  <p className="mt-3 rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
                     {errorMessage}
                   </p>
                 ) : null}
               </div>
 
-              <div className="border-t border-[#1e2230] pt-5">
-                <p className="text-sm font-medium uppercase tracking-[0.22em] text-[#94a3b8]">
+              <div className="border-t border-[#d7e7f7] pt-5">
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#0ea5e9]">
                   Previous Questions
                 </p>
 
                 <div className="mt-4 space-y-4">
                   {detail.questions.length === 0 ? (
-                    <div className="rounded-[1.2rem] border border-dashed border-[#2a3144] bg-[#0f1117] px-5 py-8 text-sm text-[#94a3b8]">
+                    <div className="rounded-md border border-dashed border-[#bfdbfe] bg-[#f8fbff] px-5 py-8 text-sm text-[#52627a]">
                       No AI questions yet for this repository.
                     </div>
                   ) : (
                     detail.questions.map((question) => (
                       <article
                         key={question.id}
-                        className="rounded-[1.2rem] border border-[#2a3144] bg-[#0f1117] px-5 py-5"
+                        className="rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-5 py-5"
                       >
                         <div className="flex items-start gap-3">
-                          <div className="mt-1 rounded-lg bg-[#7c3aed]/12 p-2 text-[#c4b5fd]">
+                          <div className="mt-1 rounded-md bg-[#e0f2fe] p-2 text-[#2563eb]">
                             <Bot className="h-4 w-4" />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="text-lg font-medium text-slate-50">
+                            <p className="text-lg font-bold text-[#10213f]">
                               {question.questionText}
                             </p>
-                            <div className="mt-3 text-sm leading-8 text-[#cbd5e1]">
+                            <div className="mt-3 text-sm leading-8 text-[#334155]">
                               <ReactMarkdown>
                                 {question.answerText ?? "Awaiting response..."}
                               </ReactMarkdown>
@@ -505,10 +495,10 @@ export default function RepositoryDetailPage() {
           ) : null}
 
           {activeTab === "docs" ? (
-            <div className="grid gap-5 lg:grid-cols-[0.72fr_1.28fr]">
-              <div className="space-y-3">
+            <div className="grid gap-5 xl:grid-cols-[minmax(180px,0.72fr)_minmax(0,1.28fr)]">
+              <div className="grid gap-3 sm:grid-cols-2 xl:block xl:space-y-3">
                 {detail.docs.length === 0 ? (
-                  <div className="rounded-[1.2rem] border border-dashed border-[#2a3144] bg-[#0f1117] px-5 py-8 text-sm text-[#94a3b8]">
+                  <div className="rounded-md border border-dashed border-[#bfdbfe] bg-[#f8fbff] px-5 py-8 text-sm text-[#52627a]">
                     No documentation generated yet.
                   </div>
                 ) : (
@@ -517,14 +507,14 @@ export default function RepositoryDetailPage() {
                       key={doc.id}
                       type="button"
                       onClick={() => setActiveDocId(doc.id)}
-                      className={`w-full rounded-[1.2rem] border px-4 py-4 text-left transition ${
+                      className={`w-full rounded-md border px-4 py-4 text-left transition ${
                         selectedDoc?.id === doc.id
-                          ? "border-[#0d9488] bg-[#0f1117] shadow-[inset_0_0_0_1px_#0d9488]"
-                          : "border-[#2a3144] bg-[#0f1117] hover:border-[#3a445c]"
+                          ? "border-[#2563eb] bg-[#eff6ff]"
+                          : "border-[#d7e7f7] bg-[#f8fbff] hover:border-[#38bdf8] hover:bg-white"
                       }`}
                     >
-                      <p className="font-semibold text-slate-50">{doc.title}</p>
-                      <p className="mt-2 text-sm text-[#94a3b8]">
+                      <p className="break-words font-bold text-[#10213f]">{doc.title}</p>
+                      <p className="mt-2 text-sm text-[#52627a]">
                         Updated {formatDate(doc.updatedAt)}
                       </p>
                     </button>
@@ -532,9 +522,9 @@ export default function RepositoryDetailPage() {
                 )}
               </div>
 
-              <div className="rounded-[1.2rem] border border-[#2a3144] bg-[#0f1117] p-6">
+              <div className="min-w-0 rounded-md border border-[#d7e7f7] bg-[#f8fbff] p-4 sm:p-6">
                 <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-                  <h3 className="text-xl font-semibold text-slate-50">
+                  <h3 className="text-xl font-bold text-[#10213f]">
                     {selectedDoc?.title ?? "Documentation"}
                   </h3>
                   <div className="flex flex-wrap gap-2">
@@ -543,14 +533,14 @@ export default function RepositoryDetailPage() {
                         <button
                           type="button"
                           onClick={() => downloadDocumentationAsWord(selectedDoc)}
-                          className="rounded-xl bg-[#0d9488] px-4 py-2 text-sm font-semibold text-white"
+                          className="rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1d4ed8]"
                         >
                           Word .doc
                         </button>
                         <button
                           type="button"
                           onClick={() => downloadDocumentationAsPdf(selectedDoc)}
-                          className="rounded-xl border border-[#2a3144] px-4 py-2 text-sm font-semibold text-slate-100"
+                          className="rounded-md border border-[#d7e7f7] bg-white px-4 py-2 text-sm font-semibold text-[#2563eb] hover:border-[#38bdf8]"
                         >
                           PDF
                         </button>
@@ -558,7 +548,7 @@ export default function RepositoryDetailPage() {
                     ) : null}
                   </div>
                 </div>
-                <div className="markdown-body max-w-none text-[#cbd5e1]">
+                <div className="markdown-body max-w-none overflow-x-auto text-[#334155]">
                   <ReactMarkdown>{selectedDoc?.content ?? ""}</ReactMarkdown>
                 </div>
               </div>
@@ -568,47 +558,41 @@ export default function RepositoryDetailPage() {
           {activeTab === "diagrams" ? (
             <div className="space-y-5">
               {detail.diagrams.length === 0 ? (
-                <div className="rounded-[1.2rem] border border-dashed border-[#2a3144] bg-[#0f1117] px-5 py-8 text-sm text-[#94a3b8]">
+                <div className="rounded-md border border-dashed border-[#bfdbfe] bg-[#f8fbff] px-5 py-8 text-sm text-[#52627a]">
                   No diagrams generated yet.
                 </div>
               ) : (
                 detail.diagrams.map((diagram) => (
                   <div
                     key={diagram.id}
-                    className="rounded-[1.2rem] border border-[#2a3144] bg-[#0f1117] p-6"
+                    className="rounded-md border border-[#d7e7f7] bg-[#f8fbff] p-6"
                   >
                     <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <h3 className="text-xl font-semibold text-slate-50">{diagram.title}</h3>
-                        <p className="mt-1 text-sm text-[#94a3b8]">
+                        <h3 className="text-xl font-bold text-[#10213f]">{diagram.title}</h3>
+                        <p className="mt-1 text-sm text-[#52627a]">
                           Updated {formatDate(diagram.updatedAt)}
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
-                          onClick={() =>
-                            downloadTextFile(
-                              diagram.mermaidCode,
-                              `${safeFilename(diagram.title, "diagram")}.mmd`,
-                              "text/plain;charset=utf-8",
-                            )
-                          }
-                          className="rounded-xl bg-[#0d9488] px-4 py-2 text-sm font-semibold text-white"
+                          onClick={() => downloadDiagramAsMmd(diagram)}
+                          className="rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1d4ed8]"
                         >
                           MMD
                         </button>
                         <button
                           type="button"
                           onClick={() => downloadDiagramAsPng(diagram)}
-                          className="rounded-xl border border-[#2a3144] px-4 py-2 text-sm font-semibold text-slate-100"
+                          className="rounded-md border border-[#d7e7f7] bg-white px-4 py-2 text-sm font-semibold text-[#2563eb] hover:border-[#38bdf8]"
                         >
                           PNG
                         </button>
                         <button
                           type="button"
                           onClick={() => downloadDiagramAsPdf(diagram)}
-                          className="rounded-xl border border-[#2a3144] px-4 py-2 text-sm font-semibold text-slate-100"
+                          className="rounded-md border border-[#d7e7f7] bg-white px-4 py-2 text-sm font-semibold text-[#2563eb] hover:border-[#38bdf8]"
                         >
                           PDF
                         </button>
@@ -616,7 +600,7 @@ export default function RepositoryDetailPage() {
                     </div>
                     <div
                       id={`diagram-preview-${diagram.id}`}
-                      className="overflow-hidden rounded-[1.2rem] bg-white p-5 text-slate-900"
+                      className="overflow-hidden rounded-md border border-[#d7e7f7] bg-white p-5 text-[#172033]"
                     >
                       <MermaidDiagram chart={diagram.mermaidCode} />
                     </div>
@@ -627,15 +611,15 @@ export default function RepositoryDetailPage() {
           ) : null}
         </section>
 
-        <aside className="rounded-[2rem] border border-[#1e2230] bg-[#13161e] p-7 shadow-[0_12px_40px_rgba(0,0,0,0.24)]">
+        <aside className="rounded-md border border-[#d7e7f7] bg-white p-5 shadow-[0_18px_45px_rgba(37,99,235,0.08)] sm:p-7">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-[#c4b5fd]" />
-            <h2 className="text-3xl font-semibold tracking-[-0.04em] text-slate-50">
+            <Sparkles className="h-5 w-5 text-[#2563eb]" />
+            <h2 className="text-3xl font-bold tracking-tight text-[#10213f]">
               Generate
             </h2>
           </div>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-2">
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 2xl:grid-cols-1 min-[1760px]:grid-cols-2">
             {generationCards.map((item) => {
               const Icon = item.icon;
 
@@ -645,11 +629,11 @@ export default function RepositoryDetailPage() {
                   type="button"
                   onClick={() => generateDocumentation(item.title)}
                   disabled={isGeneratingDoc}
-                  className="rounded-[1.2rem] border border-[#2a3144] bg-[#0f1117] p-5 text-left transition hover:border-[#3a445c] hover:bg-[#151923]"
+                  className="min-w-0 rounded-md border border-[#d7e7f7] bg-[#f8fbff] p-4 text-left transition hover:border-[#38bdf8] hover:bg-white"
                 >
-                  <Icon className="h-5 w-5 text-[#5eead4]" />
-                  <p className="mt-4 text-lg font-semibold text-slate-50">{item.title}</p>
-                  <p className="mt-2 text-sm leading-6 text-[#94a3b8]">{item.description}</p>
+                  <Icon className="h-5 w-5 text-[#2563eb]" />
+                  <p className="mt-4 break-words text-base font-bold text-[#10213f]">{item.title}</p>
+                  <p className="mt-2 break-words text-sm leading-6 text-[#52627a]">{item.description}</p>
                 </button>
               );
             })}

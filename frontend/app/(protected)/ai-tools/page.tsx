@@ -13,10 +13,11 @@ export default async function AIToolsPage() {
   const recentQuestions = await fetchRecentQuestions();
 
   return (
-    <div className="space-y-4 text-black">
-      <section className="rounded-md border border-black/50 bg-[#f6f6f6] px-6 py-4">
-        <h1 className="text-3xl font-semibold tracking-tight">AI Chat</h1>
-        <p className="mt-1 text-sm text-black/65">
+    <div className="space-y-4 text-[#172033]">
+      <section className="rounded-md border border-[#d7e7f7] bg-white px-6 py-4 shadow-[0_18px_45px_rgba(37,99,235,0.08)]">
+        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#0ea5e9]">Assistant</p>
+        <h1 className="mt-1 text-3xl font-bold tracking-tight text-[#10213f]">AI Chat</h1>
+        <p className="mt-1 text-sm text-[#52627a]">
           Select a repository and ask questions to get repository-specific AI answers.
         </p>
       </section>
@@ -25,34 +26,34 @@ export default async function AIToolsPage() {
         <ChatUI />
 
         <div className="space-y-4">
-          <section className="rounded-md border border-black/60 bg-[#f7f7f7]">
-            <div className="border-b border-black/50 px-4 py-3">
+          <section className="rounded-md border border-[#d7e7f7] bg-white shadow-[0_18px_45px_rgba(37,99,235,0.08)]">
+            <div className="border-b border-[#d7e7f7] px-4 py-3">
               <div className="flex items-center gap-2">
-                <Sparkles className="h-4 w-4" />
-                <h2 className="text-lg font-semibold tracking-tight">Prompt Ideas</h2>
+                <Sparkles className="h-4 w-4 text-[#2563eb]" />
+                <h2 className="text-lg font-bold tracking-tight text-[#10213f]">Prompt Ideas</h2>
               </div>
             </div>
             <div className="space-y-2 px-4 py-3">
               {promptIdeas.map((prompt) => (
-                <div key={prompt} className="rounded-sm border border-black/30 bg-[#fafafa] px-3 py-2 text-sm">
+                <div key={prompt} className="rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-3 py-2 text-sm text-[#52627a]">
                   {prompt}
                 </div>
               ))}
             </div>
           </section>
 
-          <section className="rounded-md border border-black/60 bg-[#f7f7f7]">
-            <div className="border-b border-black/50 px-4 py-3">
+          <section className="rounded-md border border-[#d7e7f7] bg-white shadow-[0_18px_45px_rgba(37,99,235,0.08)]">
+            <div className="border-b border-[#d7e7f7] px-4 py-3">
               <div className="flex items-center gap-2">
-                <MessagesSquare className="h-4 w-4" />
-                <h2 className="text-lg font-semibold tracking-tight">Recent Questions</h2>
+                <MessagesSquare className="h-4 w-4 text-[#2563eb]" />
+                <h2 className="text-lg font-bold tracking-tight text-[#10213f]">Recent Questions</h2>
               </div>
             </div>
             <div className="space-y-2 px-4 py-3">
               {recentQuestions.map((question) => (
-                <div key={question.id} className="rounded-sm border border-black/30 bg-[#fafafa] px-3 py-2">
-                  <p className="text-sm font-medium">{question.questionText}</p>
-                  <p className="mt-1 text-xs text-black/55">{question.questionType ?? "Question"}</p>
+                <div key={question.id} className="rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-3 py-2">
+                  <p className="text-sm font-semibold text-[#10213f]">{question.questionText}</p>
+                  <p className="mt-1 text-xs text-[#8a9ab0]">{question.questionType ?? "Question"}</p>
                 </div>
               ))}
             </div>

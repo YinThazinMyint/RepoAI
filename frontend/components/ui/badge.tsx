@@ -10,12 +10,12 @@ const badgeVariants = cva(
     },
     variants: {
       variant: {
-        accent: "border-purple-500/20 bg-purple-500/10 text-purple-300",
-        error: "border-red-500/20 bg-red-500/10 text-red-300",
-        muted: "border-[#1e2230] bg-[#171b24] text-slate-400",
-        success: "border-green-500/20 bg-green-500/10 text-green-300",
-        teal: "border-teal-500/20 bg-teal-500/10 text-teal-300",
-        warning: "border-yellow-500/20 bg-yellow-500/10 text-yellow-300",
+        accent: "border-sky-200 bg-sky-50 text-sky-700",
+        error: "border-red-200 bg-red-50 text-red-700",
+        muted: "border-[#d7e7f7] bg-[#f8fbff] text-[#52627a]",
+        success: "border-green-200 bg-green-50 text-green-700",
+        teal: "border-blue-200 bg-blue-50 text-blue-700",
+        warning: "border-yellow-200 bg-yellow-50 text-yellow-700",
       },
     },
   },

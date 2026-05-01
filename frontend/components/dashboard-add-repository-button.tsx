@@ -12,7 +12,7 @@ export function DashboardAddRepositoryButton() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-2 rounded-md border border-black bg-black px-4 py-2 text-sm font-semibold text-white transition hover:bg-black/85"
+        className="inline-flex items-center gap-2 rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1d4ed8]"
       >
         <Plus className="h-4 w-4" />
         Add Repository
