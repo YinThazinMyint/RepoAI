@@ -22,5 +22,7 @@ public class RepositoryDTO {
     private String repositoryVisibility;
     private String questionText;
     private String documentationType;
+    private Long documentationId;
     private String diagramType;
+    private Long diagramId;
 }

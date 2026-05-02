@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Locale;
@@ -316,8 +317,9 @@ public class RepositoryService {
         Repository repository = repositoryRepository.findById(repositoryId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Repository not found."));
 
-        String title = normalizeDiagramTitle(diagramType);
-        String mermaidCode = generateMermaidDiagram(repository, title);
+        String baseTitle = normalizeDiagramTitle(diagramType);
+        String title = nextDiagramTitle(repositoryId, baseTitle);
+        String mermaidCode = generateMermaidDiagram(repository, baseTitle);
 
         Diagram diagram = Diagram.builder()
                 .repositoryId(repositoryId)
@@ -331,6 +333,30 @@ public class RepositoryService {
     public Diagram generateDiagram(Long repositoryId, String diagramType, Long ownerUserId) {
         requireOwnedRepository(repositoryId, ownerUserId);
         return generateDiagram(repositoryId, diagramType);
+    }
+
+    @Transactional
+    public void deleteDocumentation(Long repositoryId, Long documentationId, Long ownerUserId) {
+        if (documentationId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Documentation id is required.");
+        }
+        requireOwnedRepository(repositoryId, ownerUserId);
+        long deleted = documentationRepository.deleteByIdAndRepositoryId(documentationId, repositoryId);
+        if (deleted == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Documentation not found.");
+        }
+    }
+
+    @Transactional
+    public void deleteDiagram(Long repositoryId, Long diagramId, Long ownerUserId) {
+        if (diagramId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Diagram id is required.");
+        }
+        requireOwnedRepository(repositoryId, ownerUserId);
+        long deleted = diagramRepository.deleteByIdAndRepositoryId(diagramId, repositoryId);
+        if (deleted == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Diagram not found.");
+        }
     }
 
     @Transactional
@@ -850,7 +876,7 @@ public class RepositoryService {
                     )
             );
             String sanitized = sanitizeMermaidCode(firstNonBlank(generated, fallback), "Flowchart");
-            return hasExpectedMermaidHeader(sanitized, "Flowchart") ? sanitized : fallback;
+            return normalizeFlowchartDiagram(sanitized, "TD", fallback);
         } catch (Exception exception) {
             return fallback;
         }
@@ -874,6 +900,38 @@ public class RepositoryService {
         return "Flowchart";
     }
 
+    private String nextDiagramTitle(Long repositoryId, String baseTitle) {
+        int nextNumber = diagramRepository.findByRepositoryIdOrderByUpdatedAtDesc(repositoryId).stream()
+                .map(Diagram::getTitle)
+                .map(title -> diagramTitleSequenceNumber(title, baseTitle))
+                .filter(number -> number > 0)
+                .max(Integer::compareTo)
+                .orElse(0) + 1;
+        return "%s %s".formatted(baseTitle, nextNumber);
+    }
+
+    private int diagramTitleSequenceNumber(String title, String baseTitle) {
+        if (!StringUtils.hasText(title) || !StringUtils.hasText(baseTitle)) {
+            return 0;
+        }
+
+        String trimmedTitle = title.trim();
+        if (trimmedTitle.equalsIgnoreCase(baseTitle)) {
+            return 1;
+        }
+
+        String prefix = baseTitle + " ";
+        if (!trimmedTitle.regionMatches(true, 0, prefix, 0, prefix.length())) {
+            return 0;
+        }
+
+        String suffix = trimmedTitle.substring(prefix.length()).trim();
+        if (!suffix.matches("\\d+")) {
+            return 0;
+        }
+        return Integer.parseInt(suffix);
+    }
+
     private String generateMermaidDiagram(Repository repository, String title) {
         String fallback = buildDiagramFallback(repository, title);
         if (!openAiService.isConfigured()) {
@@ -888,6 +946,7 @@ public class RepositoryService {
                             Return Mermaid code only, with no markdown fences and no explanation.
                             Use the exact Mermaid diagram syntax requested.
                             Include enough repository-specific detail to be useful, but keep labels short and valid for Mermaid.
+                            For flowchart diagrams, use simple alphanumeric node IDs like A1, A2, quote every node label like A1["Frontend"], and do not use punctuation-heavy IDs, raw file paths, markdown, HTML, or parentheses in IDs.
                             Do not invent exact classes, endpoints, or services unless they appear in the context.
                             Prefer real file names, classes, controllers, services, entities, tables, and integration names from the context.
                             """,
@@ -920,6 +979,9 @@ public class RepositoryService {
                     )
             );
             String sanitized = sanitizeMermaidCode(firstNonBlank(generated, fallback), title);
+            if ("Flowchart".equals(title)) {
+                return normalizeFlowchartDiagram(sanitized, "TD", fallback);
+            }
             return hasExpectedMermaidHeader(sanitized, title) ? sanitized : fallback;
         } catch (Exception exception) {
             return fallback;
@@ -989,6 +1051,9 @@ public class RepositoryService {
                 Include real component names from the context.
                 Use subgraphs when they make the flow clearer.
                 Include at least 8 nodes when context supports them.
+                Use only simple alphanumeric node IDs such as A1, A2, A3.
+                Quote every node label with double quotes, for example A1["Repository selected"].
+                Do not use raw file paths, dots, slashes, brackets, parentheses, or markdown as node IDs.
                 Start the diagram with: flowchart TD
                 """;
     }
@@ -1033,6 +1098,130 @@ public class RepositoryService {
                 || trimmed.startsWith("sequenceDiagram")
                 || trimmed.startsWith("classDiagram")
                 || trimmed.startsWith("erDiagram");
+    }
+
+    private String normalizeFlowchartDiagram(String mermaidCode, String direction, String fallback) {
+        if (!StringUtils.hasText(mermaidCode) || !mermaidCode.trim().startsWith("flowchart " + direction)) {
+            return fallback;
+        }
+
+        List<String> normalizedLines = new ArrayList<>();
+        Map<String, String> nodeIds = new LinkedHashMap<>();
+        Map<String, String> nodeLabels = new LinkedHashMap<>();
+        normalizedLines.add("flowchart " + direction);
+
+        for (String rawLine : mermaidCode.split("\\R")) {
+            String line = rawLine.trim();
+            if (!StringUtils.hasText(line)
+                    || line.startsWith("flowchart ")
+                    || line.startsWith("%%")
+                    || line.equals("end")
+                    || line.startsWith("subgraph ")) {
+                continue;
+            }
+
+            FlowchartEdge edge = parseFlowchartEdge(line);
+            if (edge == null) {
+                continue;
+            }
+
+            String sourceId = normalizedFlowchartNodeId(edge.source(), nodeIds, nodeLabels);
+            String targetId = normalizedFlowchartNodeId(edge.target(), nodeIds, nodeLabels);
+            normalizedLines.add("    %s --> %s".formatted(sourceId, targetId));
+        }
+
+        if (normalizedLines.size() < 3) {
+            return fallback;
+        }
+
+        List<String> nodeLines = nodeLabels.entrySet().stream()
+                .map(entry -> "    %s[\"%s\"]".formatted(entry.getKey(), escapeMermaidLabel(entry.getValue())))
+                .toList();
+
+        List<String> result = new ArrayList<>();
+        result.add(normalizedLines.get(0));
+        result.addAll(nodeLines);
+        result.addAll(normalizedLines.subList(1, normalizedLines.size()));
+        return String.join("\n", result);
+    }
+
+    private FlowchartEdge parseFlowchartEdge(String line) {
+        String cleanedLine = line.replaceAll("\\s+", " ");
+        String[] arrowParts = cleanedLine.split("\\s*(?:-->|---|-.->|==>)\\s*", 2);
+        if (arrowParts.length != 2) {
+            return null;
+        }
+
+        String source = arrowParts[0].trim();
+        String target = arrowParts[1].replaceFirst("^\\|[^|]*\\|\\s*", "").trim();
+        if (!StringUtils.hasText(source) || !StringUtils.hasText(target)) {
+            return null;
+        }
+
+        return new FlowchartEdge(source, target);
+    }
+
+    private String normalizedFlowchartNodeId(String rawNode, Map<String, String> nodeIds, Map<String, String> nodeLabels) {
+        String rawId = rawNode.replaceFirst("\\s*[\\[{(].*$", "").trim();
+        String label = extractFlowchartNodeLabel(rawNode);
+        if (!StringUtils.hasText(rawId)) {
+            rawId = label;
+        }
+
+        return nodeIds.computeIfAbsent(rawId, key -> {
+            String nodeId = "N" + (nodeIds.size() + 1);
+            nodeLabels.put(nodeId, firstNonBlank(label, key, "Step " + (nodeIds.size() + 1)));
+            return nodeId;
+        });
+    }
+
+    private String extractFlowchartNodeLabel(String rawNode) {
+        String trimmed = rawNode.trim();
+        int start = firstNodeLabelStart(trimmed);
+        if (start < 0) {
+            return trimmed;
+        }
+
+        char opener = trimmed.charAt(start);
+        char closer = switch (opener) {
+            case '[' -> ']';
+            case '(' -> ')';
+            case '{' -> '}';
+            default -> opener;
+        };
+        int end = trimmed.lastIndexOf(closer);
+        if (end <= start) {
+            return trimmed.substring(0, start).trim();
+        }
+
+        String label = trimmed.substring(start + 1, end).trim();
+        if ((label.startsWith("\"") && label.endsWith("\"")) || (label.startsWith("'") && label.endsWith("'"))) {
+            label = label.substring(1, label.length() - 1).trim();
+        }
+        return label;
+    }
+
+    private int firstNodeLabelStart(String value) {
+        int firstIndex = -1;
+        for (char delimiter : new char[] {'[', '(', '{'}) {
+            int index = value.indexOf(delimiter);
+            if (index >= 0 && (firstIndex < 0 || index < firstIndex)) {
+                firstIndex = index;
+            }
+        }
+        return firstIndex;
+    }
+
+    private String escapeMermaidLabel(String label) {
+        return firstNonBlank(label, "Step")
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replaceAll("[\\[\\]{}<>|`]", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private record FlowchartEdge(String source, String target) {
     }
 
     private String expectedMermaidHeader(String title) {

@@ -10,5 +10,7 @@ public interface DiagramRepository extends JpaRepository<Diagram, Long> {
 
     long countByRepositoryIdIn(List<Long> repositoryIds);
 
+    long deleteByIdAndRepositoryId(Long id, Long repositoryId);
+
     void deleteByRepositoryId(Long repositoryId);
 }

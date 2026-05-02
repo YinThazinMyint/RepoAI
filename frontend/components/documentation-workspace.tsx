@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { FileText, Sparkles, X } from "lucide-react";
+import { FileText, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect } from "react";
 import { axiosInstance } from "@/lib/api";
 import { AxiosError } from "axios";
@@ -52,6 +52,7 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
     () => repositories.find((repository) => String(repository.id) === selectedRepositoryId)?.name,
     [repositories, selectedRepositoryId],
   );
+  const notificationRepositoryName = selectedRepositoryName ?? selectedDoc?.repositoryName ?? "selected repository";
 
   useEffect(() => {
     void axiosInstance
@@ -92,7 +93,7 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
   const notifyDownload = (filename: string) => {
     addNotification({
       href: selectedRepositoryId ? `/repositories/${selectedRepositoryId}?tab=docs` : "/documentation",
-      message: filename,
+      message: `${filename} was downloaded from ${notificationRepositoryName}.`,
       title: "File downloaded",
       type: "documentation",
     });
@@ -144,7 +145,7 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
       setSelectedDocId(response.data.id);
       addNotification({
         href: `/repositories/${selectedRepositoryId}?tab=docs&doc=${response.data.id}`,
-        message: `${response.data.title} is ready to view.`,
+        message: `${response.data.title} is ready to view for ${notificationRepositoryName}.`,
         title: "Documentation generated",
         type: "documentation",
       });
@@ -159,6 +160,43 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
     } finally {
       setIsGenerating(false);
       setGeneratingTitle(null);
+    }
+  };
+
+  const deleteDocument = async (document: RepoDocument) => {
+    if (!selectedRepositoryId) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete "${document.title}"?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setErrorMessage(null);
+    try {
+      await axiosInstance.delete(`/repositories/${selectedRepositoryId}/documentation`, {
+        data: { documentationId: document.id },
+      });
+      setRepositoryDocs((current) => {
+        const nextDocs = current.filter((item) => item.id !== document.id);
+        if (selectedDocId === document.id) {
+          setSelectedDocId(nextDocs[0]?.id ?? null);
+        }
+        return nextDocs;
+      });
+      addNotification({
+        href: selectedRepositoryId ? `/repositories/${selectedRepositoryId}?tab=docs` : "/documentation",
+        message: `${document.title} was deleted from ${notificationRepositoryName}.`,
+        title: "Documentation deleted",
+        type: "documentation",
+      });
+    } catch (error) {
+      const apiMessage =
+        error instanceof AxiosError && typeof error.response?.data?.message === "string"
+          ? error.response.data.message
+          : null;
+      setErrorMessage(apiMessage ?? `${document.title} could not be deleted.`);
     }
   };
 
@@ -217,11 +255,9 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
             </div>
           ) : (
             repositoryDocs.map((document) => (
-              <button
+              <article
                 key={document.id}
-                type="button"
-                onClick={() => setSelectedDocId(document.id)}
-                className="flex w-full items-center justify-between gap-4 rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-4 py-3 text-left transition hover:border-[#38bdf8] hover:bg-white"
+                className="flex items-center justify-between gap-4 rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-4 py-3 transition hover:border-[#38bdf8] hover:bg-white"
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -235,10 +271,25 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
                     <span>{formatDate(document.updatedAt)}</span>
                   </div>
                 </div>
-                <span className="rounded-md border border-[#d7e7f7] bg-white px-3 py-1.5 text-sm font-semibold text-[#2563eb]">
-                  View
-                </span>
-              </button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDocId(document.id)}
+                    className="rounded-md border border-[#d7e7f7] bg-white px-3 py-1.5 text-sm font-semibold text-[#2563eb] hover:border-[#38bdf8] hover:bg-[#edf6ff]"
+                  >
+                    View
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void deleteDocument(document)}
+                    className="rounded-md border border-red-200 bg-white p-2 text-red-600 hover:border-red-300 hover:bg-red-50"
+                    aria-label={`Delete ${document.title}`}
+                    title="Delete documentation"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </article>
             ))
           )}
         </div>
@@ -249,9 +300,6 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#d7e7f7] px-4 py-3">
             <div>
               <h2 className="text-xl font-bold text-[#10213f]">{selectedDoc.title}</h2>
-              <p className="text-sm text-[#52627a]">
-                {selectedDoc.repositoryName ?? "Unknown repository"}
-              </p>
             </div>
 
             <div className="flex items-center gap-2">

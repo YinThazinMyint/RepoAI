@@ -12,6 +12,7 @@ import {
   Puzzle,
   Send,
   Sparkles,
+  Trash2,
   Waypoints,
 } from "lucide-react";
 import { MermaidDiagram } from "@/components/mermaid-diagram";
@@ -255,9 +256,10 @@ export default function RepositoryDetailPage() {
   };
 
   const notifyDownload = (filename: string, type: "diagram" | "documentation") => {
+    const repositoryName = detail?.repository.name ?? `repository ${repoId}`;
     addNotification({
       href: `/repositories/${repoId}?tab=${type === "documentation" ? "docs" : "diagrams"}`,
-      message: filename,
+      message: `${filename} was downloaded from ${repositoryName}.`,
       title: "File downloaded",
       type,
     });
@@ -308,6 +310,77 @@ export default function RepositoryDetailPage() {
     const filename = `${safeArtifactFilename(detail?.repository.name, diagram.title, "diagram")}.mmd`;
     downloadTextFile(diagram.mermaidCode, filename, "text/plain;charset=utf-8");
     notifyDownload(filename, "diagram");
+  };
+
+  const deleteDocumentation = async (doc: RepoDocument) => {
+    const confirmed = window.confirm(`Delete "${doc.title}"?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setErrorMessage(null);
+    try {
+      await axiosInstance.delete(`/repositories/${repoId}/documentation`, {
+        data: { documentationId: doc.id },
+      });
+      setDetail((current) => {
+        if (!current) {
+          return current;
+        }
+        const nextDocs = current.docs.filter((item) => item.id !== doc.id);
+        if (activeDocId === doc.id) {
+          setActiveDocId(nextDocs[0]?.id ?? null);
+        }
+        return {
+          ...current,
+          docs: nextDocs,
+        };
+      });
+      addNotification({
+        href: `/repositories/${repoId}?tab=docs`,
+        message: `${doc.title} was deleted from ${detail?.repository.name ?? `repository ${repoId}`}.`,
+        title: "Documentation deleted",
+        type: "documentation",
+      });
+    } catch (error) {
+      const apiMessage =
+        error instanceof AxiosError && typeof error.response?.data?.message === "string"
+          ? error.response.data.message
+          : null;
+      setErrorMessage(apiMessage ?? `${doc.title} could not be deleted.`);
+    }
+  };
+
+  const deleteDiagram = async (diagram: RepoDiagram) => {
+    const confirmed = window.confirm(`Delete "${diagram.title}"?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setErrorMessage(null);
+    try {
+      await axiosInstance.delete(`/repositories/${repoId}/diagrams`, {
+        data: { diagramId: diagram.id },
+      });
+      setDetail((current) => current
+        ? {
+            ...current,
+            diagrams: current.diagrams.filter((item) => item.id !== diagram.id),
+          }
+        : current);
+      addNotification({
+        href: `/repositories/${repoId}?tab=diagrams`,
+        message: `${diagram.title} was deleted from ${detail?.repository.name ?? `repository ${repoId}`}.`,
+        title: "Diagram deleted",
+        type: "diagram",
+      });
+    } catch (error) {
+      const apiMessage =
+        error instanceof AxiosError && typeof error.response?.data?.message === "string"
+          ? error.response.data.message
+          : null;
+      setErrorMessage(apiMessage ?? `${diagram.title} could not be deleted.`);
+    }
   };
 
   if (isLoading) {
@@ -503,10 +576,8 @@ export default function RepositoryDetailPage() {
                   </div>
                 ) : (
                   detail.docs.map((doc) => (
-                    <button
+                    <article
                       key={doc.id}
-                      type="button"
-                      onClick={() => setActiveDocId(doc.id)}
                       className={`w-full rounded-md border px-4 py-4 text-left transition ${
                         selectedDoc?.id === doc.id
                           ? "border-[#2563eb] bg-[#eff6ff]"
@@ -517,7 +588,25 @@ export default function RepositoryDetailPage() {
                       <p className="mt-2 text-sm text-[#52627a]">
                         Updated {formatDate(doc.updatedAt)}
                       </p>
-                    </button>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setActiveDocId(doc.id)}
+                          className="rounded-md border border-[#d7e7f7] bg-white px-3 py-1.5 text-sm font-semibold text-[#2563eb] hover:border-[#38bdf8] hover:bg-[#edf6ff]"
+                        >
+                          View
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void deleteDocumentation(doc)}
+                          className="rounded-md border border-red-200 bg-white p-2 text-red-600 hover:border-red-300 hover:bg-red-50"
+                          aria-label={`Delete ${doc.title}`}
+                          title="Delete documentation"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </article>
                   ))
                 )}
               </div>
@@ -543,6 +632,13 @@ export default function RepositoryDetailPage() {
                           className="rounded-md border border-[#d7e7f7] bg-white px-4 py-2 text-sm font-semibold text-[#2563eb] hover:border-[#38bdf8]"
                         >
                           PDF
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void deleteDocumentation(selectedDoc)}
+                          className="rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:border-red-300 hover:bg-red-50"
+                        >
+                          Delete
                         </button>
                       </>
                     ) : null}
@@ -595,6 +691,13 @@ export default function RepositoryDetailPage() {
                           className="rounded-md border border-[#d7e7f7] bg-white px-4 py-2 text-sm font-semibold text-[#2563eb] hover:border-[#38bdf8]"
                         >
                           PDF
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void deleteDiagram(diagram)}
+                          className="rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:border-red-300 hover:bg-red-50"
+                        >
+                          Delete
                         </button>
                       </div>
                     </div>

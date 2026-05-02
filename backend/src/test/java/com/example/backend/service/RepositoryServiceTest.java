@@ -4,12 +4,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.backend.dto.RepositoryDTO;
+import com.example.backend.entity.Diagram;
+import com.example.backend.entity.Documentation;
 import com.example.backend.entity.Repository;
 import com.example.backend.entity.RepositoryStatus;
 import com.example.backend.repository.AIQuestionRepository;
@@ -21,6 +25,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.List;
 import java.util.Optional;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -62,6 +67,9 @@ class RepositoryServiceTest {
 
     @Captor
     private ArgumentCaptor<Repository> repositoryCaptor;
+
+    @Captor
+    private ArgumentCaptor<Diagram> diagramCaptor;
 
     @Test
     void uploadRepositoryWithGithubUrlFetchesMetadataAndStoresRepository() throws Exception {
@@ -140,6 +148,109 @@ class RepositoryServiceTest {
         verify(diagramRepository).deleteByRepositoryId(42L);
         verify(documentationRepository).deleteByRepositoryId(42L);
         verify(repositoryRepository).delete(repository);
+    }
+
+    @Test
+    void deleteDocumentationRemovesOwnedRepositoryDocument() {
+        Repository repository = Repository.builder()
+                .id(42L)
+                .ownerUserId(7L)
+                .name("sample-repo")
+                .build();
+        Documentation documentation = Documentation.builder()
+                .id(9L)
+                .repositoryId(42L)
+                .title("Project Overview")
+                .content("# Overview")
+                .build();
+
+        when(repositoryRepository.findByIdAndOwnerUserId(42L, 7L)).thenReturn(Optional.of(repository));
+        when(documentationRepository.deleteByIdAndRepositoryId(9L, 42L)).thenReturn(1L);
+
+        repositoryService.deleteDocumentation(42L, 9L, 7L);
+
+        verify(documentationRepository).deleteByIdAndRepositoryId(9L, 42L);
+    }
+
+    @Test
+    void deleteDiagramRemovesOwnedRepositoryDiagram() {
+        Repository repository = Repository.builder()
+                .id(42L)
+                .ownerUserId(7L)
+                .name("sample-repo")
+                .build();
+        Diagram diagram = Diagram.builder()
+                .id(11L)
+                .repositoryId(42L)
+                .title("Flowchart 1")
+                .mermaidCode("flowchart TD\nA --> B")
+                .build();
+
+        when(repositoryRepository.findByIdAndOwnerUserId(42L, 7L)).thenReturn(Optional.of(repository));
+        when(diagramRepository.deleteByIdAndRepositoryId(11L, 42L)).thenReturn(1L);
+
+        repositoryService.deleteDiagram(42L, 11L, 7L);
+
+        verify(diagramRepository).deleteByIdAndRepositoryId(11L, 42L);
+    }
+
+    @Test
+    void generateFlowchartRepairsAiMermaidBeforeSaving() {
+        Repository repository = Repository.builder()
+                .id(35L)
+                .name("repoai")
+                .language("Java")
+                .techStack("Spring Boot, Next.js")
+                .build();
+
+        when(repositoryRepository.findById(35L)).thenReturn(Optional.of(repository));
+        when(diagramRepository.findByRepositoryIdOrderByUpdatedAtDesc(35L)).thenReturn(List.of());
+        when(openAiService.isConfigured()).thenReturn(true);
+        when(repositoryChunkService.countIndexedChunks(35L)).thenReturn(2);
+        when(repositoryChunkService.findRelevantChunks(any(), anyString(), anyInt())).thenReturn(List.of());
+        when(openAiService.generateText(anyString(), anyString())).thenReturn("""
+                flowchart TD
+                    src/main/App.java[App.java (entry)] --> backend/service/RepositoryService.java[RepositoryService.generateDiagram()]
+                    backend/service/RepositoryService.java --> frontend/components/mermaid-diagram.tsx[Mermaid preview]
+                """);
+        when(diagramRepository.save(any(Diagram.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Diagram diagram = repositoryService.generateDiagram(35L, "Flowchart");
+
+        verify(diagramRepository).save(diagramCaptor.capture());
+        String mermaidCode = diagramCaptor.getValue().getMermaidCode();
+
+        assertEquals(diagram, diagramCaptor.getValue());
+        assertEquals("Flowchart 1", diagramCaptor.getValue().getTitle());
+        assertTrue(mermaidCode.startsWith("flowchart TD"));
+        assertTrue(mermaidCode.contains("N1[\"App.java (entry)\"]"));
+        assertTrue(mermaidCode.contains("N2[\"RepositoryService.generateDiagram()\"]"));
+        assertTrue(mermaidCode.contains("N1 --> N2"));
+        assertTrue(mermaidCode.contains("N2 --> N3"));
+    }
+
+    @Test
+    void generateDiagramNumbersRepeatedDiagramsPerRepositoryAndType() {
+        Repository repository = Repository.builder()
+                .id(35L)
+                .name("repoai")
+                .language("Java")
+                .techStack("Spring Boot")
+                .build();
+
+        when(repositoryRepository.findById(35L)).thenReturn(Optional.of(repository));
+        when(diagramRepository.findByRepositoryIdOrderByUpdatedAtDesc(35L)).thenReturn(List.of(
+                Diagram.builder().repositoryId(35L).title("Flowchart 2").mermaidCode("flowchart TD\nA --> B").build(),
+                Diagram.builder().repositoryId(35L).title("Architecture 1").mermaidCode("flowchart LR\nA --> B").build(),
+                Diagram.builder().repositoryId(35L).title("Flowchart").mermaidCode("flowchart TD\nA --> B").build()
+        ));
+        when(openAiService.isConfigured()).thenReturn(false);
+        when(diagramRepository.save(any(Diagram.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Diagram diagram = repositoryService.generateDiagram(35L, "Flowchart");
+
+        assertEquals("Flowchart 3", diagram.getTitle());
+        assertEquals("Flowchart", diagram.getType());
     }
 
     private String createSampleZipBase64() throws IOException {

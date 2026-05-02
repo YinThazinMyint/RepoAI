@@ -99,6 +99,46 @@ public class RepositoryController {
         return ResponseEntity.ok(repositoryService.generateDiagram(id, repositoryDTO.getDiagramType(), currentUserId(authentication)));
     }
 
+    @DeleteMapping("/{id}/documentation/{documentationId}")
+    public ResponseEntity<Void> deleteDocumentation(
+            @PathVariable Long id,
+            @PathVariable Long documentationId,
+            Authentication authentication
+    ) {
+        repositoryService.deleteDocumentation(id, documentationId, currentUserId(authentication));
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/{id}/diagrams/{diagramId}")
+    public ResponseEntity<Void> deleteDiagram(
+            @PathVariable Long id,
+            @PathVariable Long diagramId,
+            Authentication authentication
+    ) {
+        repositoryService.deleteDiagram(id, diagramId, currentUserId(authentication));
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/{id}/documentation")
+    public ResponseEntity<Void> deleteDocumentationWithRequestBody(
+            @PathVariable Long id,
+            @RequestBody RepositoryDTO repositoryDTO,
+            Authentication authentication
+    ) {
+        repositoryService.deleteDocumentation(id, repositoryDTO.getDocumentationId(), currentUserId(authentication));
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/{id}/diagrams")
+    public ResponseEntity<Void> deleteDiagramWithRequestBody(
+            @PathVariable Long id,
+            @RequestBody RepositoryDTO repositoryDTO,
+            Authentication authentication
+    ) {
+        repositoryService.deleteDiagram(id, repositoryDTO.getDiagramId(), currentUserId(authentication));
+        return ResponseEntity.noContent().build();
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteRepository(@PathVariable Long id, Authentication authentication) {
         repositoryService.deleteRepository(id, currentUserId(authentication));

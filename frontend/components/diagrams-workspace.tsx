@@ -15,7 +15,7 @@ import {
   safeArtifactFilename,
 } from "@/lib/utils";
 import { renderMermaidForExport } from "@/lib/mermaid-export";
-import { Image as ImageIcon, Sparkles, Workflow, X } from "lucide-react";
+import { Image as ImageIcon, Sparkles, Trash2, Workflow, X } from "lucide-react";
 import { MermaidDiagram } from "@/components/mermaid-diagram";
 
 const generateOptions = [
@@ -90,13 +90,14 @@ export function DiagramsWorkspace() {
     () => repositories.find((repository) => String(repository.id) === selectedRepositoryId)?.name,
     [repositories, selectedRepositoryId],
   );
+  const notificationRepositoryName = selectedRepositoryName ?? "selected repository";
   const selectedDiagramFilename = selectedDiagram
     ? safeArtifactFilename(selectedRepositoryName, selectedDiagram.title, "diagram")
     : "diagram";
   const notifyDownload = (filename: string) => {
     addNotification({
       href: selectedRepositoryId ? `/repositories/${selectedRepositoryId}?tab=diagrams` : "/diagrams",
-      message: filename,
+      message: `${filename} was downloaded from ${notificationRepositoryName}.`,
       title: "File downloaded",
       type: "diagram",
     });
@@ -171,7 +172,7 @@ export function DiagramsWorkspace() {
       setSelectedDiagramId(response.data.id);
       addNotification({
         href: `/repositories/${selectedRepositoryId}?tab=diagrams&diagram=${response.data.id}`,
-        message: `${response.data.title} is ready to view.`,
+        message: `${response.data.title} is ready to view for ${notificationRepositoryName}.`,
         title: "Diagram generated",
         type: "diagram",
       });
@@ -187,6 +188,43 @@ export function DiagramsWorkspace() {
     } finally {
       setIsGenerating(false);
       setGeneratingTitle(null);
+    }
+  };
+
+  const deleteDiagram = async (diagram: RepoDiagram) => {
+    if (!selectedRepositoryId) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete "${diagram.title}"?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setErrorMessage(null);
+    try {
+      await axiosInstance.delete(`/repositories/${selectedRepositoryId}/diagrams`, {
+        data: { diagramId: diagram.id },
+      });
+      setDiagrams((current) => {
+        const nextDiagrams = current.filter((item) => item.id !== diagram.id);
+        if (selectedDiagramId === diagram.id) {
+          setSelectedDiagramId(nextDiagrams[0]?.id ?? null);
+        }
+        return nextDiagrams;
+      });
+      addNotification({
+        href: selectedRepositoryId ? `/repositories/${selectedRepositoryId}?tab=diagrams` : "/diagrams",
+        message: `${diagram.title} was deleted from ${notificationRepositoryName}.`,
+        title: "Diagram deleted",
+        type: "diagram",
+      });
+    } catch (error) {
+      const apiMessage =
+        error instanceof AxiosError && typeof error.response?.data?.message === "string"
+          ? error.response.data.message
+          : null;
+      setErrorMessage(apiMessage ?? `${diagram.title} could not be deleted.`);
     }
   };
 
@@ -262,13 +300,24 @@ export function DiagramsWorkspace() {
                     <span>{formatDate(diagram.updatedAt)}</span>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedDiagramId(diagram.id)}
-                  className="rounded-md border border-[#d7e7f7] bg-white px-3 py-1.5 text-sm font-semibold text-[#2563eb] hover:border-[#38bdf8] hover:bg-[#edf6ff]"
-                >
-                  View
-                </button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDiagramId(diagram.id)}
+                    className="rounded-md border border-[#d7e7f7] bg-white px-3 py-1.5 text-sm font-semibold text-[#2563eb] hover:border-[#38bdf8] hover:bg-[#edf6ff]"
+                  >
+                    View
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void deleteDiagram(diagram)}
+                    className="rounded-md border border-red-200 bg-white p-2 text-red-600 hover:border-red-300 hover:bg-red-50"
+                    aria-label={`Delete ${diagram.title}`}
+                    title="Delete diagram"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </article>
             ))
           )}

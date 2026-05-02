@@ -8,6 +8,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { useAuth } from "@/context/auth-context";
 
 export type RepoNotification = {
   createdAt: string;
@@ -39,13 +40,21 @@ const NotificationContext = createContext<NotificationContextValue | undefined>(
 const STORAGE_KEY = "repoai.notifications";
 const MAX_NOTIFICATIONS = 25;
 
-function loadStoredNotifications() {
+function userNotificationStorageKey(userId: number | string | undefined) {
+  return userId ? `${STORAGE_KEY}.${userId}` : null;
+}
+
+function loadStoredNotifications(storageKey: null | string) {
   if (typeof window === "undefined") {
     return [];
   }
 
+  if (!storageKey) {
+    return [];
+  }
+
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey);
     if (!raw) {
       return [];
     }
@@ -58,13 +67,37 @@ function loadStoredNotifications() {
 }
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
-  const [notifications, setNotifications] = useState<RepoNotification[]>(loadStoredNotifications);
+  const { user } = useAuth();
+  const storageKey = userNotificationStorageKey(user?.id);
+  const [activeStorageKey, setActiveStorageKey] = useState(storageKey);
+  const [notifications, setNotifications] = useState<RepoNotification[]>(() =>
+    loadStoredNotifications(storageKey),
+  );
+
+  if (activeStorageKey !== storageKey) {
+    setActiveStorageKey(storageKey);
+    setNotifications(loadStoredNotifications(storageKey));
+  }
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(notifications));
-  }, [notifications]);
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!storageKey) {
+      return;
+    }
+
+    window.localStorage.setItem(storageKey, JSON.stringify(notifications));
+  }, [notifications, storageKey]);
 
   const addNotification = useCallback((notification: AddNotificationInput) => {
+    if (!storageKey) {
+      return;
+    }
+
     const nextNotification: RepoNotification = {
       ...notification,
       createdAt: new Date().toISOString(),
@@ -73,7 +106,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     };
 
     setNotifications((current) => [nextNotification, ...current].slice(0, MAX_NOTIFICATIONS));
-  }, []);
+  }, [storageKey]);
 
   const markRead = useCallback((id: string) => {
     setNotifications((current) =>

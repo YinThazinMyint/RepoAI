@@ -81,6 +81,7 @@ export default function SettingsPage() {
                   <p className="mt-2">{user?.githubConnected ? "Connected" : "Not connected"}</p>
                 </div>
               </div>
+
             </CardContent>
           </Card>
         </div>
