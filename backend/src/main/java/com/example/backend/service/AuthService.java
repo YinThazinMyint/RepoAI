@@ -26,23 +26,40 @@ public class AuthService {
     public AuthResponse signup(SignupRequest request) {
         validateSignup(request);
 
-        userRepository.findByEmail(request.getEmail()).ifPresent(user -> {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email is already registered.");
+        String email = request.getEmail().trim();
+        String username = request.getUsername().trim();
+
+        userRepository.findByEmail(email).ifPresent(existingUser -> {
+            if (StringUtils.hasText(existingUser.getPasswordHash())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Email is already registered.");
+            }
         });
-        userRepository.findByUsername(request.getUsername()).ifPresent(user -> {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Username is already taken.");
+        userRepository.findByUsername(username).ifPresent(user -> {
+            if (!email.equals(user.getEmail())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Username is already taken.");
+            }
         });
 
-        User user = User.builder()
-                .email(request.getEmail().trim())
-                .name(request.getName().trim())
-                .username(request.getUsername().trim())
-                .passwordHash(passwordEncoder.encode(request.getPassword()))
-                .provider("LOCAL")
-                .roles(Set.of("USER"))
-                .build();
+        User savedUser = userRepository.findByEmail(email)
+                .map(existingUser -> {
+                    existingUser.setName(request.getName().trim());
+                    existingUser.setUsername(username);
+                    existingUser.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+                    existingUser.setProvider("LOCAL");
+                    if (existingUser.getRoles() == null || existingUser.getRoles().isEmpty()) {
+                        existingUser.setRoles(Set.of("USER"));
+                    }
+                    return userRepository.save(existingUser);
+                })
+                .orElseGet(() -> userRepository.save(User.builder()
+                        .email(email)
+                        .name(request.getName().trim())
+                        .username(username)
+                        .passwordHash(passwordEncoder.encode(request.getPassword()))
+                        .provider("LOCAL")
+                        .roles(Set.of("USER"))
+                        .build()));
 
-        User savedUser = userRepository.save(user);
         return buildAuthResponse(savedUser);
     }
 

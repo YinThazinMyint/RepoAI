@@ -1,6 +1,7 @@
 package com.example.backend.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -12,6 +13,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.backend.dto.RepositoryDTO;
+import com.example.backend.dto.repository.RepositoryDetailResponse;
 import com.example.backend.entity.Diagram;
 import com.example.backend.entity.Documentation;
 import com.example.backend.entity.Repository;
@@ -227,6 +229,111 @@ class RepositoryServiceTest {
         assertTrue(mermaidCode.contains("N2[\"RepositoryService.generateDiagram()\"]"));
         assertTrue(mermaidCode.contains("N1 --> N2"));
         assertTrue(mermaidCode.contains("N2 --> N3"));
+    }
+
+    @Test
+    void generateFlowchartPreservesLabelsFromStandaloneNodeDeclarations() {
+        Repository repository = Repository.builder()
+                .id(35L)
+                .name("repoai")
+                .language("Java")
+                .techStack("Spring Boot, Next.js")
+                .build();
+
+        when(repositoryRepository.findById(35L)).thenReturn(Optional.of(repository));
+        when(diagramRepository.findByRepositoryIdOrderByUpdatedAtDesc(35L)).thenReturn(List.of());
+        when(openAiService.isConfigured()).thenReturn(true);
+        when(repositoryChunkService.countIndexedChunks(35L)).thenReturn(2);
+        when(repositoryChunkService.findRelevantChunks(any(), anyString(), anyInt())).thenReturn(List.of());
+        when(openAiService.generateText(anyString(), anyString())).thenReturn("""
+                flowchart TD
+                    A1["Repository selected"]
+                    A2["Frontend requests diagram"]
+                    B1["Backend generates Mermaid"]
+                    A1 --> A2
+                    A2 -- authenticated request --> B1
+                """);
+        when(diagramRepository.save(any(Diagram.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        repositoryService.generateDiagram(35L, "Flowchart");
+
+        verify(diagramRepository).save(diagramCaptor.capture());
+        String mermaidCode = diagramCaptor.getValue().getMermaidCode();
+
+        assertTrue(mermaidCode.contains("N1[\"Repository selected\"]"));
+        assertTrue(mermaidCode.contains("N2[\"Frontend requests diagram\"]"));
+        assertTrue(mermaidCode.contains("N3[\"Backend generates Mermaid\"]"));
+        assertTrue(mermaidCode.contains("N1 --> N2"));
+        assertTrue(mermaidCode.contains("N2 --> N3"));
+        assertFalse(mermaidCode.contains("N1[\"A1\"]"));
+        assertFalse(mermaidCode.contains("N2[\"A2\"]"));
+    }
+
+    @Test
+    void generateFlowchartDoesNotExposeUndeclaredGenericNodeIdsAsLabels() {
+        Repository repository = Repository.builder()
+                .id(35L)
+                .name("repoai")
+                .language("Java")
+                .techStack("Spring Boot, Next.js")
+                .build();
+
+        when(repositoryRepository.findById(35L)).thenReturn(Optional.of(repository));
+        when(diagramRepository.findByRepositoryIdOrderByUpdatedAtDesc(35L)).thenReturn(List.of());
+        when(openAiService.isConfigured()).thenReturn(true);
+        when(repositoryChunkService.countIndexedChunks(35L)).thenReturn(2);
+        when(repositoryChunkService.findRelevantChunks(any(), anyString(), anyInt())).thenReturn(List.of());
+        when(openAiService.generateText(anyString(), anyString())).thenReturn("""
+                flowchart TD
+                    A1["User request"]
+                    A1 --> A2
+                    A2 --> RootLayout
+                    RootLayout["Root layout"] --> B
+                """);
+        when(diagramRepository.save(any(Diagram.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        repositoryService.generateDiagram(35L, "Flowchart");
+
+        verify(diagramRepository).save(diagramCaptor.capture());
+        String mermaidCode = diagramCaptor.getValue().getMermaidCode();
+
+        assertTrue(mermaidCode.contains("N1[\"User request\"]"));
+        assertTrue(mermaidCode.contains("N2[\"Flow step 2\"]"));
+        assertTrue(mermaidCode.contains("N3[\"Root layout\"]"));
+        assertTrue(mermaidCode.contains("N4[\"Flow step 4\"]"));
+        assertFalse(mermaidCode.contains("[\"A2\"]"));
+        assertFalse(mermaidCode.contains("[\"B\"]"));
+    }
+
+    @Test
+    void getRepositoryRepairsSavedFlowchartsWithGenericNodeLabelsForDisplay() {
+        Repository repository = Repository.builder()
+                .id(35L)
+                .name("repoai")
+                .build();
+        Diagram diagram = Diagram.builder()
+                .id(7L)
+                .repositoryId(35L)
+                .title("Flowchart 1")
+                .mermaidCode("""
+                        flowchart TD
+                            N1["A2"]
+                            N2["RootLayout"]
+                            N1 --> N2
+                        """)
+                .build();
+
+        when(repositoryRepository.findById(35L)).thenReturn(Optional.of(repository));
+        when(documentationRepository.findByRepositoryIdOrderByUpdatedAtDesc(35L)).thenReturn(List.of());
+        when(diagramRepository.findByRepositoryIdOrderByUpdatedAtDesc(35L)).thenReturn(List.of(diagram));
+        when(aiQuestionRepository.findByRepositoryIdOrderByRespondedAtDesc(35L)).thenReturn(List.of());
+
+        RepositoryDetailResponse response = repositoryService.getRepository(35L);
+
+        String mermaidCode = response.getDiagrams().getFirst().getMermaidCode();
+        assertTrue(mermaidCode.contains("N1[\"Flow step 1\"]"));
+        assertTrue(mermaidCode.contains("N2[\"RootLayout\"]"));
+        assertFalse(mermaidCode.contains("[\"A2\"]"));
     }
 
     @Test
