@@ -257,74 +257,6 @@ export const downloadSvgMarkupAsPng = async (
   await downloadPreparedSvgMarkupAsPng(markup, width, height, filename);
 };
 
-export const downloadTextAsPdf = async (
-  content: string,
-  filename: string,
-  title: string,
-) => {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const { jsPDF } = await import("jspdf");
-  const pdf = new jsPDF({ format: "a4", unit: "pt" });
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
-  const margin = 48;
-  const lineHeight = 16;
-  let cursorY = margin;
-
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(18);
-  pdf.text(title, margin, cursorY);
-  cursorY += 30;
-
-  pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(11);
-
-  const lines = pdf.splitTextToSize(content, pageWidth - margin * 2) as string[];
-  lines.forEach((line) => {
-    if (cursorY > pageHeight - margin) {
-      pdf.addPage();
-      cursorY = margin;
-    }
-
-    pdf.text(line, margin, cursorY);
-    cursorY += lineHeight;
-  });
-
-  pdf.save(filename);
-};
-
-export const downloadSvgMarkupAsPdf = async (
-  svgMarkup: string,
-  filename: string,
-  title: string,
-) => {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const { height, markup, width } = serializeRenderedSvgMarkupForExport(svgMarkup);
-  const canvas = await renderSvgMarkupToCanvas(markup, width, height);
-  const { jsPDF } = await import("jspdf");
-  const margin = 36;
-  const titleHeight = 34;
-  const pdfWidth = width + margin * 2;
-  const pdfHeight = height + margin * 2 + titleHeight;
-  const pdf = new jsPDF({
-    format: [pdfWidth, pdfHeight],
-    orientation: pdfWidth > pdfHeight ? "landscape" : "portrait",
-    unit: "pt",
-  });
-
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(18);
-  pdf.text(title, margin, margin);
-  pdf.addImage(canvas.toDataURL("image/png"), "PNG", margin, margin + titleHeight, width, height);
-  pdf.save(filename);
-};
-
 export const writeSvgMarkupToPrintableWindow = (
   printWindow: Window,
   svgMarkup: string,
@@ -372,4 +304,48 @@ export const openSvgMarkupAsPrintablePdf = (
   }
 
   writeSvgMarkupToPrintableWindow(printWindow, svgMarkup, title);
+};
+
+export const openTextAsPrintablePdf = (
+  content: string,
+  title: string,
+) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const printWindow = window.open("", "_blank", "width=1100,height=850");
+  if (!printWindow) {
+    throw new Error("Popup blocked while opening PDF export.");
+  }
+
+  const safeTitle = title
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+  const safeContent = content
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>${safeTitle}</title>
+        <style>
+          @page { margin: 18mm; }
+          body { margin: 0; font-family: Arial, sans-serif; color: #172033; background: #fff; }
+          h1 { margin: 0 0 18px; color: #10213f; font-size: 24px; }
+          pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: Arial, sans-serif; font-size: 12px; line-height: 1.6; }
+        </style>
+      </head>
+      <body>
+        <h1>${safeTitle}</h1>
+        <pre>${safeContent}</pre>
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+  printWindow.focus();
+  window.setTimeout(() => printWindow.print(), 250);
 };

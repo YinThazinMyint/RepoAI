@@ -9,9 +9,9 @@ import { useNotifications } from "@/context/notification-context";
 import type { RepoDiagram, RepositoryDetail, RepositorySummary } from "@/lib/types";
 import {
   downloadSvgMarkupAsPng,
-  downloadSvgMarkupAsPdf,
   downloadTextFile,
   formatDate,
+  openSvgMarkupAsPrintablePdf,
   safeArtifactFilename,
 } from "@/lib/utils";
 import { renderMermaidForExport } from "@/lib/mermaid-export";
@@ -38,7 +38,7 @@ export function DiagramsWorkspace() {
   const [generationMessage, setGenerationMessage] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingTitle, setGeneratingTitle] = useState<string | null>(null);
-  const [exportFormat, setExportFormat] = useState<"mmd" | "pdf" | "png">("png");
+  const [exportingFormat, setExportingFormat] = useState<"mmd" | "pdf" | "png" | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -108,6 +108,8 @@ export function DiagramsWorkspace() {
       return;
     }
 
+    setExportingFormat("png");
+    setErrorMessage(null);
     try {
       const svgMarkup = await renderMermaidForExport(selectedDiagram.mermaidCode);
       const filename = `${selectedDiagramFilename}.png`;
@@ -115,6 +117,8 @@ export function DiagramsWorkspace() {
       notifyDownload(filename);
     } catch {
       setErrorMessage("PNG export failed. Try downloading Mermaid or PDF instead.");
+    } finally {
+      setExportingFormat(null);
     }
   };
 
@@ -123,33 +127,35 @@ export function DiagramsWorkspace() {
       return;
     }
 
+    setExportingFormat("pdf");
+    setErrorMessage(null);
     try {
       const svgMarkup = await renderMermaidForExport(selectedDiagram.mermaidCode);
       const filename = `${selectedDiagramFilename}.pdf`;
-      await downloadSvgMarkupAsPdf(svgMarkup, filename, selectedDiagramFilename);
+      openSvgMarkupAsPrintablePdf(svgMarkup, selectedDiagramFilename);
       notifyDownload(filename);
     } catch {
-      setErrorMessage("PDF export failed. Try downloading Mermaid instead.");
+      setErrorMessage("PDF export failed. Allow popups for this site or download Mermaid instead.");
+    } finally {
+      setExportingFormat(null);
     }
   };
 
-  const handleExport = () => {
-    if (exportFormat === "mmd") {
-      const filename = `${selectedDiagramFilename}.mmd`;
-      downloadTextFile(
-        selectedDiagram?.mermaidCode ?? "",
-        filename,
-        "text/plain;charset=utf-8",
-      );
-      notifyDownload(filename);
+  const exportAsMmd = () => {
+    if (!selectedDiagram) {
       return;
     }
 
-    if (exportFormat === "png") {
-      void exportAsPng();
-      return;
-    }
-    void exportAsPdf();
+    setExportingFormat("mmd");
+    setErrorMessage(null);
+    const filename = `${selectedDiagramFilename}.mmd`;
+    downloadTextFile(
+      selectedDiagram.mermaidCode,
+      filename,
+      "text/plain;charset=utf-8",
+    );
+    notifyDownload(filename);
+    setExportingFormat(null);
   };
 
   const generateDiagram = async (title: string) => {
@@ -332,22 +338,30 @@ export function DiagramsWorkspace() {
               <p className="text-sm text-[#52627a]">{selectedDiagram.type}</p>
             </div>
 
-            <div className="flex items-center gap-2">
-              <select
-                value={exportFormat}
-                onChange={(event) => setExportFormat(event.target.value as "mmd" | "pdf" | "png")}
-                className="rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-2 py-1.5 text-sm outline-none focus:border-[#38bdf8]"
-              >
-                <option value="mmd">Mermaid (.mmd)</option>
-                <option value="png">PNG (.png)</option>
-                <option value="pdf">PDF (.pdf)</option>
-              </select>
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={handleExport}
+                onClick={exportAsMmd}
+                disabled={exportingFormat !== null}
+                className="rounded-md border border-[#d7e7f7] bg-white px-3 py-1.5 text-sm font-semibold text-[#2563eb] shadow-sm hover:border-[#38bdf8] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                MMD
+              </button>
+              <button
+                type="button"
+                onClick={() => void exportAsPng()}
+                disabled={exportingFormat !== null}
+                className="rounded-md border border-[#d7e7f7] bg-white px-3 py-1.5 text-sm font-semibold text-[#2563eb] shadow-sm hover:border-[#38bdf8] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {exportingFormat === "png" ? "Preparing..." : "PNG"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void exportAsPdf()}
+                disabled={exportingFormat !== null}
                 className="rounded-md bg-[#2563eb] px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-[#1d4ed8]"
               >
-                Download
+                {exportingFormat === "pdf" ? "Preparing..." : "PDF"}
               </button>
             </div>
           </div>

@@ -9,7 +9,7 @@ import { AxiosError } from "axios";
 import { GenerationOverlay } from "@/components/generation-overlay";
 import { useNotifications } from "@/context/notification-context";
 import type { RepoDocument, RepositoryDetail, RepositorySummary } from "@/lib/types";
-import { downloadTextAsPdf, downloadTextFile, formatDate, safeArtifactFilename } from "@/lib/utils";
+import { downloadTextFile, formatDate, openTextAsPrintablePdf, safeArtifactFilename } from "@/lib/utils";
 
 type DocumentationWorkspaceProps = {
   documents: RepoDocument[];
@@ -37,7 +37,7 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
   const [repositoryDocs, setRepositoryDocs] = useState<RepoDocument[]>(documents);
   const [selectedDocId, setSelectedDocId] = useState<number | null>(documents[0]?.id ?? null);
   const [isLoadingRepositories, setIsLoadingRepositories] = useState(true);
-  const [exportFormat, setExportFormat] = useState<"pdf" | "word">("word");
+  const [exportingFormat, setExportingFormat] = useState<"pdf" | "word" | null>(null);
   const [isGenerateOpen, setIsGenerateOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingTitle, setGeneratingTitle] = useState<string | null>(null);
@@ -99,7 +99,7 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
     });
   };
 
-  const handleExport = () => {
+  const exportAsWord = () => {
     if (!selectedDoc) {
       return;
     }
@@ -109,22 +109,38 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
       selectedDoc.title,
       "documentation",
     );
+    const filename = `${filenameBase}.doc`;
+    setExportingFormat("word");
+    setErrorMessage(null);
+    downloadTextFile(
+      selectedDoc.content,
+      filename,
+      "application/msword;charset=utf-8",
+    );
+    notifyDownload(filename);
+    setExportingFormat(null);
+  };
 
-    if (exportFormat === "word") {
-      const filename = `${filenameBase}.doc`;
-      downloadTextFile(
-        selectedDoc.content,
-        filename,
-        "application/msword;charset=utf-8",
-      );
-      notifyDownload(filename);
+  const exportAsPdf = () => {
+    if (!selectedDoc) {
       return;
     }
 
-    const filename = `${filenameBase}.pdf`;
-    void downloadTextAsPdf(selectedDoc.content, filename, filenameBase)
-      .then(() => notifyDownload(filename))
-      .catch(() => setErrorMessage("PDF export failed. Please try again."));
+    const filenameBase = safeArtifactFilename(
+      selectedRepositoryName ?? selectedDoc.repositoryName,
+      selectedDoc.title,
+      "documentation",
+    );
+    setExportingFormat("pdf");
+    setErrorMessage(null);
+    try {
+      openTextAsPrintablePdf(selectedDoc.content, filenameBase);
+      notifyDownload(`${filenameBase}.pdf`);
+    } catch {
+      setErrorMessage("PDF export failed. Allow popups for this site and try again.");
+    } finally {
+      setExportingFormat(null);
+    }
   };
 
   const handleGenerate = async (title: string) => {
@@ -302,21 +318,22 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
               <h2 className="text-xl font-bold text-[#10213f]">{selectedDoc.title}</h2>
             </div>
 
-            <div className="flex items-center gap-2">
-              <select
-                value={exportFormat}
-                onChange={(event) => setExportFormat(event.target.value as "pdf" | "word")}
-                className="rounded-md border border-[#d7e7f7] bg-[#f8fbff] px-2 py-1.5 text-sm outline-none focus:border-[#38bdf8]"
-              >
-                <option value="word">Word (.doc)</option>
-                <option value="pdf">PDF (.pdf)</option>
-              </select>
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={handleExport}
+                onClick={exportAsWord}
+                disabled={exportingFormat !== null}
+                className="rounded-md border border-[#d7e7f7] bg-white px-3 py-1.5 text-sm font-semibold text-[#2563eb] shadow-sm hover:border-[#38bdf8] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {exportingFormat === "word" ? "Preparing..." : "Word"}
+              </button>
+              <button
+                type="button"
+                onClick={exportAsPdf}
+                disabled={exportingFormat !== null}
                 className="rounded-md bg-[#2563eb] px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-[#1d4ed8]"
               >
-                Download
+                {exportingFormat === "pdf" ? "Preparing..." : "PDF"}
               </button>
             </div>
           </div>
