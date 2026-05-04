@@ -24,10 +24,10 @@ import { AxiosError } from "axios";
 import type { AIMessage, RepoDiagram, RepoDocument, RepositoryDetail } from "@/lib/types";
 import {
   downloadSvgMarkupAsPng,
-  downloadSvgMarkupAsPdf,
-  downloadTextAsPdf,
   downloadTextFile,
   formatDate,
+  openSvgMarkupAsPrintablePdf,
+  openTextAsPrintablePdf,
   safeArtifactFilename,
 } from "@/lib/utils";
 import { renderMermaidForExport } from "@/lib/mermaid-export";
@@ -281,9 +281,12 @@ export default function RepositoryDetailPage() {
     const filenameBase = safeArtifactFilename(detail?.repository.name, doc.title, "documentation");
     const filename = `${filenameBase}.pdf`;
 
-    void downloadTextAsPdf(doc.content, filename, filenameBase)
-      .then(() => notifyDownload(filename, "documentation"))
-      .catch(() => setErrorMessage("PDF export failed. Please try again."));
+    try {
+      openTextAsPrintablePdf(doc.content, filenameBase);
+      notifyDownload(filename, "documentation");
+    } catch {
+      setErrorMessage("PDF export failed. Allow popups for this site and try again.");
+    }
   };
 
   const downloadDiagramAsPng = (diagram: RepoDiagram) => {
@@ -301,9 +304,11 @@ export default function RepositoryDetailPage() {
     const filename = `${filenameBase}.pdf`;
 
     void renderMermaidForExport(diagram.mermaidCode)
-      .then((svgMarkup) => downloadSvgMarkupAsPdf(svgMarkup, filename, filenameBase))
-      .then(() => notifyDownload(filename, "diagram"))
-      .catch(() => setErrorMessage("PDF export failed. Try downloading Mermaid instead."));
+      .then((svgMarkup) => {
+        openSvgMarkupAsPrintablePdf(svgMarkup, filenameBase);
+        notifyDownload(filename, "diagram");
+      })
+      .catch(() => setErrorMessage("PDF export failed. Allow popups for this site or download Mermaid instead."));
   };
 
   const downloadDiagramAsMmd = (diagram: RepoDiagram) => {
