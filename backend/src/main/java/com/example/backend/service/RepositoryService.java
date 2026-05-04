@@ -1013,9 +1013,12 @@ public class RepositoryService {
     private String loadDiagramContext(Repository repository, String title) {
         try {
             ensureRepositoryHasRagContext(repository);
+            String retrievalPrompt = "Flowchart".equals(title)
+                    ? "Generate a user perspective Mermaid flowchart showing the user's journey, screens, actions, decisions, and visible outcomes in this application."
+                    : "Generate " + title + " Mermaid diagram using real repository components, routes, services, entities, data models, database tables, external APIs, and runtime flow.";
             List<RepositoryChunkService.RetrievedChunk> chunks = repositoryChunkService.findRelevantChunks(
                     repository.getId(),
-                    "Generate " + title + " Mermaid diagram using real repository components, routes, services, entities, data models, database tables, external APIs, and runtime flow.",
+                    retrievalPrompt,
                     14
             );
             return chunks.stream()
@@ -1069,12 +1072,13 @@ public class RepositoryService {
         }
         return """
                 Create a Mermaid flowchart TD.
-                Show the repository's main code/product flow from entry point through controllers/pages, services, storage, AI/RAG generation, and output.
-                Include real component names from the context.
-                Use subgraphs when they make the flow clearer.
-                Include at least 8 nodes when context supports them.
+                Show the flow from the user's perspective, not the repository's internal code structure.
+                Focus on what the user does and sees: login, selecting or uploading a repository, waiting for analysis, viewing generated documentation/diagrams, asking AI questions, exporting files, and handling errors when those features appear in context.
+                Use user-facing page names, actions, choices, and outcomes from the context instead of class names, controller names, service names, database tables, or internal implementation steps.
+                Include decision points for common user choices when context supports them, such as GitHub URL vs ZIP upload, documentation vs diagram generation, or successful generation vs error.
+                Include at least 8 user-facing nodes when context supports them.
                 Use only simple alphanumeric node IDs such as A1, A2, A3.
-                Quote every node label with double quotes, for example A1["Repository selected"].
+                Quote every node label with double quotes, for example A1["User opens dashboard"].
                 Do not use raw file paths, dots, slashes, brackets, parentheses, or markdown as node IDs.
                 Start the diagram with: flowchart TD
                 """;
@@ -1384,20 +1388,22 @@ public class RepositoryService {
     private String buildFlowchartDiagram(Repository repository) {
         return """
                 flowchart TD
-                    A[Repository: %s] --> B[Read metadata]
-                    B --> C[Detect language: %s]
-                    B --> D[Detect stack: %s]
-                    C --> E[Index source context]
-                    D --> E
-                    E --> F[Generate documentation]
-                    E --> G[Generate Mermaid diagrams]
-                    F --> H[Repository insights ready]
-                    G --> H
-                """.formatted(
-                firstNonBlank(repository.getName(), "Unknown"),
-                firstNonBlank(repository.getLanguage(), "Unknown"),
-                firstNonBlank(repository.getTechStack(), "Unknown")
-        );
+                    A1["User opens RepoAI"] --> A2["User logs in"]
+                    A2 --> A3["User adds repository"]
+                    A3 --> A4{"Choose upload method"}
+                    A4 --> A5["Paste GitHub URL"]
+                    A4 --> A6["Upload ZIP file"]
+                    A5 --> A7["Wait for repository analysis"]
+                    A6 --> A7
+                    A7 --> A8["Open repository workspace"]
+                    A8 --> A9{"Choose action"}
+                    A9 --> A10["Generate documentation"]
+                    A9 --> A11["Generate diagram"]
+                    A9 --> A12["Ask AI question"]
+                    A10 --> A13["View or export documentation"]
+                    A11 --> A14["View Mermaid diagram"]
+                    A12 --> A15["Read AI answer"]
+                """;
     }
 
     private String buildArchitectureDiagram(Repository repository) {
