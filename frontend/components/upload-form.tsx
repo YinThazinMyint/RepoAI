@@ -11,6 +11,8 @@ import { useEffect, useState } from "react";
 type UploadMode = "github" | "zip";
 type RepositoryVisibility = "private" | "public";
 
+const MAX_ZIP_FILE_BYTES = 100 * 1024 * 1024;
+
 export function UploadForm() {
   const { isAuthenticated, loginWithProvider, user } = useAuth();
   const router = useRouter();
@@ -23,12 +25,29 @@ export function UploadForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<null | string>(null);
   const [messageType, setMessageType] = useState<"error" | "success">("success");
+  const [zipFileError, setZipFileError] = useState<null | string>(null);
   const shouldShowGithubConnect =
     messageType === "error"
     && repositoryVisibility === "private"
     && (message?.toLowerCase().includes("private")
       || message?.toLowerCase().includes("connect github")
       || message?.toLowerCase().includes("github connection"));
+
+  const validateZipFile = (file: File | null) => {
+    if (!file) {
+      return "Please choose a repository archive in .zip format. The file must be smaller than 100MB.";
+    }
+
+    if (!file.name.toLowerCase().endsWith(".zip")) {
+      return "Unsupported file type. Please upload a .zip repository archive smaller than 100MB.";
+    }
+
+    if (file.size >= MAX_ZIP_FILE_BYTES) {
+      return "ZIP file must be smaller than 100MB. Please compress a smaller repository archive and upload a .zip file.";
+    }
+
+    return null;
+  };
 
   useEffect(() => {
     if (mode !== "github" || !isAuthenticated || !user?.githubConnected) {
@@ -53,23 +72,27 @@ export function UploadForm() {
     if (mode === "github" && !githubUrl.trim()) {
       setMessageType("error");
       setMessage("Please paste or choose a GitHub repository URL first.");
+      setZipFileError(null);
       return;
     }
 
     if (mode === "github" && repositoryVisibility === "private" && !user?.githubConnected) {
       setMessageType("error");
       setMessage("Private repositories require GitHub connection.");
+      setZipFileError(null);
       return;
     }
 
-    if (mode === "zip" && !zipFile) {
-      setMessageType("error");
-      setMessage("Please choose a ZIP file first.");
+    const zipValidationMessage = mode === "zip" ? validateZipFile(zipFile) : null;
+    if (zipValidationMessage) {
+      setMessage(null);
+      setZipFileError(zipValidationMessage);
       return;
     }
 
     setIsSubmitting(true);
     setMessage(null);
+    setZipFileError(null);
 
     try {
       const formData = new FormData();
@@ -115,6 +138,7 @@ export function UploadForm() {
               onClick={() => {
                 setMode("github");
                 setMessage(null);
+                setZipFileError(null);
               }}
               className={`rounded-[1.75rem] border p-5 text-left transition ${
                 mode === "github"
@@ -137,6 +161,7 @@ export function UploadForm() {
               onClick={() => {
                 setMode("zip");
                 setMessage(null);
+                setZipFileError(null);
               }}
               className={`rounded-[1.75rem] border p-5 text-left transition ${
                 mode === "zip"
@@ -283,17 +308,36 @@ export function UploadForm() {
                   type="file"
                   accept=".zip"
                   className="hidden"
-                  onChange={(event) => setZipFile(event.target.files?.[0] ?? null)}
+                  onChange={(event) => {
+                    const selectedFile = event.target.files?.[0] ?? null;
+                    const validationMessage = validateZipFile(selectedFile);
+                    setZipFile(validationMessage ? null : selectedFile);
+                    setZipFileError(validationMessage);
+                    setMessage(null);
+                    if (validationMessage) {
+                      event.target.value = "";
+                    }
+                  }}
                 />
                 <div>
                   <p className="text-base font-semibold">
                     {zipFile ? zipFile.name : "Drop a ZIP archive or browse"}
                   </p>
                   <p className="mt-2 text-sm text-[color:var(--muted)]">
-                    Upload a compressed codebase when GitHub integration is not needed.
+                    Upload a .zip archive smaller than 100MB.
                   </p>
+                  {zipFile ? (
+                    <p className="mt-2 text-xs font-semibold text-[color:var(--muted)]">
+                      {(zipFile.size / (1024 * 1024)).toFixed(2)} MB selected
+                    </p>
+                  ) : null}
                 </div>
               </label>
+              {zipFileError ? (
+                <p className="mt-3 rounded-2xl bg-rose-500/15 px-4 py-3 text-sm font-medium text-rose-700 dark:text-rose-300">
+                  {zipFileError}
+                </p>
+              ) : null}
             </div>
           )}
         </div>

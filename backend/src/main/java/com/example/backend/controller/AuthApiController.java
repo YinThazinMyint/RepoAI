@@ -2,6 +2,7 @@ package com.example.backend.controller;
 
 import com.example.backend.dto.auth.AuthRequest;
 import com.example.backend.dto.auth.AuthResponse;
+import com.example.backend.dto.auth.PasswordUpdateRequest;
 import com.example.backend.dto.auth.SignupRequest;
 import com.example.backend.dto.auth.UserProfileResponse;
 import com.example.backend.service.AuthService;
@@ -35,5 +36,14 @@ public class AuthApiController {
     public ResponseEntity<UserProfileResponse> currentUser(Authentication authentication) {
         UserProfileResponse user = (UserProfileResponse) authentication.getPrincipal();
         return ResponseEntity.ok(user);
+    }
+
+    @PostMapping("/user/password")
+    public ResponseEntity<UserProfileResponse> updatePassword(
+            @RequestBody PasswordUpdateRequest request,
+            Authentication authentication
+    ) {
+        UserProfileResponse user = (UserProfileResponse) authentication.getPrincipal();
+        return ResponseEntity.ok(authService.updatePassword(user.getId(), request));
     }
 }

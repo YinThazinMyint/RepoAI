@@ -23,6 +23,8 @@ public class DatabaseSchemaConfig {
             jdbcTemplate.execute("ALTER TABLE repositories ADD COLUMN IF NOT EXISTS file_count integer");
             jdbcTemplate.execute("ALTER TABLE repositories ADD COLUMN IF NOT EXISTS lines_of_code bigint");
             jdbcTemplate.execute("ALTER TABLE repositories ADD COLUMN IF NOT EXISTS owner_user_id bigint");
+            jdbcTemplate.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_generation_count integer DEFAULT 0 NOT NULL");
+            jdbcTemplate.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_generation_window_start timestamp with time zone");
             markUnscannedReadyRepositoriesAsError();
             configureVectorStorage();
         };

@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Bot,
   FileCode2,
+  FileSearch,
   FileText,
   GitBranch,
   Network,
@@ -49,6 +50,11 @@ const generationCards = [
     description: "Module-by-module breakdown",
     icon: Puzzle,
     title: "Module Docs",
+  },
+  {
+    description: "Bugs, risks, and fixes",
+    icon: FileSearch,
+    title: "Code Review",
   },
   {
     description: "Code logic flow",
@@ -174,6 +180,11 @@ export default function RepositoryDetailPage() {
       return;
     }
 
+    if (title === "Code Review") {
+      await generateCodeReview();
+      return;
+    }
+
     if (!["Project Overview", "API Documentation", "Module Docs"].includes(title)) {
       await generateDiagram(title);
       return;
@@ -209,6 +220,46 @@ export default function RepositoryDetailPage() {
           ? error.response.data.message
           : null;
       setErrorMessage(apiMessage ?? `${title} could not be generated.`);
+    } finally {
+      setIsGeneratingDoc(false);
+      setGeneratingTitle(null);
+    }
+  };
+
+  const generateCodeReview = async () => {
+    if (!detail) {
+      return;
+    }
+
+    setIsGeneratingDoc(true);
+    setGeneratingTitle("Code Review");
+    setErrorMessage(null);
+    try {
+      const response = await axiosInstance.post<RepoDocument>(
+        `/repositories/${repoId}/code-review`,
+      );
+      setDetail((current) =>
+        current
+          ? {
+              ...current,
+              docs: [response.data, ...current.docs],
+            }
+          : current,
+      );
+      setActiveDocId(response.data.id);
+      setActiveTab("docs");
+      addNotification({
+        href: `/repositories/${repoId}?tab=docs&doc=${response.data.id}`,
+        message: `Code review is ready to view for ${detail.repository.name}.`,
+        title: "Code review generated",
+        type: "documentation",
+      });
+    } catch (error) {
+      const apiMessage =
+        error instanceof AxiosError && typeof error.response?.data?.message === "string"
+          ? error.response.data.message
+          : null;
+      setErrorMessage(apiMessage ?? "Code review could not be generated.");
     } finally {
       setIsGeneratingDoc(false);
       setGeneratingTitle(null);

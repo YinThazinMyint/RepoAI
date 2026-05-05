@@ -10,10 +10,12 @@ import com.example.backend.entity.Diagram;
 import com.example.backend.entity.Documentation;
 import com.example.backend.entity.Repository;
 import com.example.backend.entity.RepositoryStatus;
+import com.example.backend.entity.User;
 import com.example.backend.repository.AIQuestionRepository;
 import com.example.backend.repository.DiagramRepository;
 import com.example.backend.repository.DocumentationRepository;
 import com.example.backend.repository.RepositoryRepository;
+import com.example.backend.repository.UserRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayInputStream;
@@ -61,11 +63,15 @@ public class RepositoryService {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final int MAX_INDEXED_FILES = 120;
     private static final int MAX_INDEXED_FILE_BYTES = 200_000;
+    private static final long MAX_ZIP_FILE_BYTES = 100L * 1024 * 1024;
+    private static final int DAILY_AI_GENERATION_LIMIT = 20;
+    private static final long AI_GENERATION_WINDOW_HOURS = 24;
 
     private final RepositoryRepository repositoryRepository;
     private final DocumentationRepository documentationRepository;
     private final DiagramRepository diagramRepository;
     private final AIQuestionRepository aiQuestionRepository;
+    private final UserRepository userRepository;
     private final OpenAiService openAiService;
     private final RepositoryChunkService repositoryChunkService;
 
@@ -308,6 +314,7 @@ public class RepositoryService {
     @Transactional
     public AIQuestion askQuestion(Long repositoryId, String questionText, Long ownerUserId) {
         requireOwnedRepository(repositoryId, ownerUserId);
+        consumeAiGenerationQuota(ownerUserId);
         return askQuestion(repositoryId, questionText);
     }
 
@@ -331,7 +338,24 @@ public class RepositoryService {
     @Transactional
     public Documentation generateDocumentation(Long repositoryId, String documentationType, Long ownerUserId) {
         requireOwnedRepository(repositoryId, ownerUserId);
+        consumeAiGenerationQuota(ownerUserId);
         return generateDocumentation(repositoryId, documentationType);
+    }
+
+    @Transactional
+    public Documentation generateCodeReview(Long repositoryId, Long ownerUserId) {
+        Repository repository = requireOwnedRepository(repositoryId, ownerUserId);
+        consumeAiGenerationQuota(ownerUserId);
+        String title = "Code Review";
+        String content = generateCodeReviewMarkdown(repository);
+
+        Documentation review = Documentation.builder()
+                .repositoryId(repositoryId)
+                .title(title)
+                .content(content)
+                .build();
+
+        return documentationRepository.save(review);
     }
 
     @Transactional
@@ -354,6 +378,7 @@ public class RepositoryService {
     @Transactional
     public Diagram generateDiagram(Long repositoryId, String diagramType, Long ownerUserId) {
         requireOwnedRepository(repositoryId, ownerUserId);
+        consumeAiGenerationQuota(ownerUserId);
         return generateDiagram(repositoryId, diagramType);
     }
 
@@ -758,6 +783,7 @@ public class RepositoryService {
 
     private Repository storeZipRepository(RepositoryDTO repositoryDTO) {
         byte[] zipBytes = Base64.getDecoder().decode(repositoryDTO.getZipFile());
+        validateZipSize(zipBytes.length);
         ZipMetadata zipMetadata = parseZipMetadata(zipBytes, repositoryDTO.getName());
         List<RepositorySourceFile> sourceFiles = extractTextFiles(zipBytes);
 
@@ -780,10 +806,7 @@ public class RepositoryService {
     }
 
     private Repository storeZipRepository(RepositoryDTO repositoryDTO, MultipartFile zipFile, Long ownerUserId) {
-        String originalFilename = zipFile.getOriginalFilename();
-        if (StringUtils.hasText(originalFilename) && !originalFilename.toLowerCase(Locale.ROOT).endsWith(".zip")) {
-            throw new IllegalArgumentException("Only .zip repository archives are supported.");
-        }
+        validateZipFile(zipFile);
 
         ZipMetadata zipMetadata;
         List<RepositorySourceFile> sourceFiles;
@@ -811,6 +834,28 @@ public class RepositoryService {
         generateOverviewArtifacts(savedRepository, "ZIP Upload");
         repositoryChunkService.indexRepository(savedRepository.getId(), withRepositoryContext(savedRepository, sourceFiles));
         return savedRepository;
+    }
+
+    private void validateZipFile(MultipartFile zipFile) {
+        if (zipFile == null || zipFile.isEmpty()) {
+            throw new IllegalArgumentException("Please upload a repository archive in .zip format. The file must be smaller than 100MB.");
+        }
+
+        String originalFilename = zipFile.getOriginalFilename();
+        if (StringUtils.hasText(originalFilename) && !originalFilename.toLowerCase(Locale.ROOT).endsWith(".zip")) {
+            throw new IllegalArgumentException("Unsupported file type. Please upload a .zip repository archive smaller than 100MB.");
+        }
+
+        validateZipSize(zipFile.getSize());
+    }
+
+    private void validateZipSize(long size) {
+        if (size >= MAX_ZIP_FILE_BYTES) {
+            throw new ResponseStatusException(
+                    HttpStatus.PAYLOAD_TOO_LARGE,
+                    "ZIP file must be smaller than 100MB. Please compress a smaller repository archive and upload a .zip file."
+            );
+        }
     }
 
     private void generateOverviewArtifacts(Repository repository, String sourceType) {
@@ -1817,6 +1862,63 @@ public class RepositoryService {
         }
     }
 
+    private String generateCodeReviewMarkdown(Repository repository) {
+        String fallback = buildCodeReviewMarkdown(repository);
+        if (!openAiService.isConfigured()) {
+            return fallback;
+        }
+
+        String context = loadCodeReviewContext(repository);
+        if (!StringUtils.hasText(context)) {
+            return fallback;
+        }
+
+        try {
+            return openAiService.generateText(
+                    """
+                            You are a senior software engineer performing a pragmatic code review.
+                            Review ONLY the repository context provided.
+                            Prioritize concrete bugs, security risks, data-loss risks, validation gaps, reliability issues, and missing tests.
+                            Do not invent files, APIs, or behavior that are not present in the context.
+                            If evidence is incomplete, say what should be inspected next.
+                            Return markdown only.
+                            Structure the review as:
+                            # Code Review
+                            ## Summary
+                            ## Findings
+                            For each finding include Severity, File, Problem, Why it matters, Suggested fix.
+                            ## Test Recommendations
+                            ## Positive Notes
+                            """,
+                    """
+                            Repository name: %s
+                            Description: %s
+                            Primary language: %s
+                            Detected tech stack: %s
+                            File count: %s
+                            Lines of code: %s
+                            Source reference: %s
+
+                            Repository source context:
+                            %s
+
+                            Produce a detailed code review report.
+                            """.formatted(
+                            firstNonBlank(repository.getName(), "Unknown"),
+                            firstNonBlank(repository.getDescription(), "No description provided"),
+                            firstNonBlank(repository.getLanguage(), "Unknown"),
+                            firstNonBlank(repository.getTechStack(), "Unknown"),
+                            repository.getFileCount() != null ? repository.getFileCount() : "Unknown",
+                            repository.getLinesOfCode() != null ? repository.getLinesOfCode() : "Unknown",
+                            firstNonBlank(repository.getGithubUrl(), "Uploaded ZIP archive"),
+                            context
+                    )
+            );
+        } catch (Exception exception) {
+            return fallback;
+        }
+    }
+
     private String loadDocumentationContext(Repository repository, String title) {
         try {
             ensureRepositoryHasRagContext(repository);
@@ -1824,6 +1926,25 @@ public class RepositoryService {
                     repository.getId(),
                     "Generate " + title + " for repository modules, APIs, components, configuration, setup, and runtime flow.",
                     12
+            );
+            return chunks.stream()
+                    .map(chunk -> """
+                            File: %s
+                            %s
+                            """.formatted(chunk.filePath(), chunk.content()))
+                    .collect(Collectors.joining("\n---\n"));
+        } catch (Exception exception) {
+            return "";
+        }
+    }
+
+    private String loadCodeReviewContext(Repository repository) {
+        try {
+            ensureRepositoryHasRagContext(repository);
+            List<RepositoryChunkService.RetrievedChunk> chunks = repositoryChunkService.findRelevantChunks(
+                    repository.getId(),
+                    "Code review security bugs validation error handling authentication authorization database persistence API controllers services tests configuration frontend forms uploads repository processing",
+                    16
             );
             return chunks.stream()
                     .map(chunk -> """
@@ -1880,6 +2001,36 @@ public class RepositoryService {
         }
 
         return buildOverviewMarkdown(repository, "Repository Detail");
+    }
+
+    private String buildCodeReviewMarkdown(Repository repository) {
+        return """
+                # Code Review
+
+                ## Summary
+                RepoAI prepared a baseline code review for `%s`. AI review generation is not configured, so this report uses repository metadata and recommends the highest-value manual checks.
+
+                ## Findings
+                No source-level findings could be produced without AI-generated repository context.
+
+                ## Test Recommendations
+                - Run the backend and frontend test suites before merging changes.
+                - Add coverage for authentication, upload validation, repository ownership checks, and generated artifact flows.
+                - Review error handling for external services such as GitHub and OpenAI.
+
+                ## Positive Notes
+                - Repository metadata is available for review.
+                - Scanned files: %s
+                - Scanned lines: %s
+                - Primary language: %s
+                - Detected stack: %s
+                """.formatted(
+                firstNonBlank(repository.getName(), "Unknown repository"),
+                repository.getFileCount() != null ? repository.getFileCount() : "unknown",
+                repository.getLinesOfCode() != null ? repository.getLinesOfCode() : "unknown",
+                firstNonBlank(repository.getLanguage(), "Unknown"),
+                firstNonBlank(repository.getTechStack(), "Not detected yet")
+        );
     }
 
     private ZipMetadata parseZipMetadata(byte[] zipBytes, String fallbackName) {
@@ -2085,6 +2236,38 @@ public class RepositoryService {
     private Repository requireOwnedRepository(Long repositoryId, Long ownerUserId) {
         return repositoryRepository.findByIdAndOwnerUserId(repositoryId, ownerUserId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Repository not found."));
+    }
+
+    private void consumeAiGenerationQuota(Long ownerUserId) {
+        if (ownerUserId == null) {
+            return;
+        }
+
+        User user = userRepository.findByIdForUpdate(ownerUserId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Login is required."));
+        Instant now = Instant.now();
+        Instant windowStart = user.getAiGenerationWindowStart();
+        Instant resetAt = windowStart != null
+                ? windowStart.plusSeconds(AI_GENERATION_WINDOW_HOURS * 60 * 60)
+                : null;
+        if (windowStart == null || !resetAt.isAfter(now)) {
+            user.setAiGenerationWindowStart(now);
+            user.setAiGenerationCount(1);
+            userRepository.save(user);
+            return;
+        }
+
+        int currentCount = user.getAiGenerationCount() != null ? user.getAiGenerationCount() : 0;
+        if (currentCount >= DAILY_AI_GENERATION_LIMIT) {
+            throw new ResponseStatusException(
+                    HttpStatus.TOO_MANY_REQUESTS,
+                    "Daily AI generation limit reached. You can generate up to 20 AI responses per account every 24 hours. Try again after %s."
+                            .formatted(resetAt)
+            );
+        }
+
+        user.setAiGenerationCount(currentCount + 1);
+        userRepository.save(user);
     }
 
     private String firstNonBlank(String... values) {

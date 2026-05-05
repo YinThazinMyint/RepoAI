@@ -90,6 +90,14 @@ public class RepositoryController {
         ));
     }
 
+    @PostMapping("/{id}/code-review")
+    public ResponseEntity<Documentation> generateCodeReview(
+            @PathVariable Long id,
+            Authentication authentication
+    ) {
+        return ResponseEntity.ok(repositoryService.generateCodeReview(id, currentUserId(authentication)));
+    }
+
     @PostMapping("/{id}/diagrams")
     public ResponseEntity<Diagram> generateDiagram(
             @PathVariable Long id,
