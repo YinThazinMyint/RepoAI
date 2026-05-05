@@ -96,6 +96,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const loginWithProvider = (provider: "github" | "google") => {
+    if (token) {
+      document.cookie = [
+        `repoai_connect_token=${encodeURIComponent(token)}`,
+        "Max-Age=300",
+        "Path=/",
+        "SameSite=Lax",
+      ].join("; ");
+    }
+
     window.location.href = `${backendBaseUrl}/oauth2/authorization/${provider}`;
   };
 

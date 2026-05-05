@@ -3,11 +3,13 @@ package com.example.backend.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -18,14 +20,17 @@ import com.example.backend.entity.Diagram;
 import com.example.backend.entity.Documentation;
 import com.example.backend.entity.Repository;
 import com.example.backend.entity.RepositoryStatus;
+import com.example.backend.entity.User;
 import com.example.backend.repository.AIQuestionRepository;
 import com.example.backend.repository.DiagramRepository;
 import com.example.backend.repository.DocumentationRepository;
 import com.example.backend.repository.RepositoryRepository;
+import com.example.backend.repository.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
@@ -39,6 +44,9 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
 @ExtendWith(MockitoExtension.class)
 class RepositoryServiceTest {
@@ -56,6 +64,9 @@ class RepositoryServiceTest {
 
     @Mock
     private AIQuestionRepository aiQuestionRepository;
+
+    @Mock
+    private UserRepository userRepository;
 
     @Mock
     private OpenAiService openAiService;
@@ -133,6 +144,26 @@ class RepositoryServiceTest {
     }
 
     @Test
+    void uploadRepositoryRejectsMultipartZipAtOneHundredMegabytes() {
+        MultipartFile zipFile = org.mockito.Mockito.mock(MultipartFile.class);
+        when(zipFile.isEmpty()).thenReturn(false);
+        when(zipFile.getOriginalFilename()).thenReturn("large-repo.zip");
+        when(zipFile.getSize()).thenReturn(100L * 1024 * 1024);
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> repositoryService.uploadRepository(null, zipFile, null, null, null, null, "public", 7L, null)
+        );
+
+        assertEquals(HttpStatus.PAYLOAD_TOO_LARGE, exception.getStatusCode());
+        assertEquals(
+                "ZIP file must be smaller than 100MB. Please compress a smaller repository archive and upload a .zip file.",
+                exception.getReason()
+        );
+        verify(repositoryRepository, never()).save(any(Repository.class));
+    }
+
+    @Test
     void deleteRepositoryRemovesOwnedRepositoryAndGeneratedArtifacts() {
         Repository repository = Repository.builder()
                 .id(42L)
@@ -150,6 +181,53 @@ class RepositoryServiceTest {
         verify(diagramRepository).deleteByRepositoryId(42L);
         verify(documentationRepository).deleteByRepositoryId(42L);
         verify(repositoryRepository).delete(repository);
+    }
+
+    @Test
+    void generateCodeReviewStoresReviewForOwnedRepository() {
+        Repository repository = Repository.builder()
+                .id(42L)
+                .ownerUserId(7L)
+                .name("sample-repo")
+                .language("Java")
+                .techStack("Spring Boot")
+                .fileCount(12)
+                .linesOfCode(450L)
+                .build();
+
+        when(repositoryRepository.findByIdAndOwnerUserId(42L, 7L)).thenReturn(Optional.of(repository));
+        when(userRepository.findByIdForUpdate(7L)).thenReturn(Optional.of(quotaUser(7L, 0, Instant.now())));
+        when(openAiService.isConfigured()).thenReturn(false);
+        when(documentationRepository.save(any(Documentation.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        Documentation review = repositoryService.generateCodeReview(42L, 7L);
+
+        assertEquals("Code Review", review.getTitle());
+        assertTrue(review.getContent().contains("# Code Review"));
+        assertTrue(review.getContent().contains("sample-repo"));
+        verify(documentationRepository).save(any(Documentation.class));
+    }
+
+    @Test
+    void generateCodeReviewRejectsWhenDailyAiGenerationLimitIsReached() {
+        Repository repository = Repository.builder()
+                .id(42L)
+                .ownerUserId(7L)
+                .name("sample-repo")
+                .build();
+
+        when(repositoryRepository.findByIdAndOwnerUserId(42L, 7L)).thenReturn(Optional.of(repository));
+        when(userRepository.findByIdForUpdate(7L)).thenReturn(Optional.of(quotaUser(7L, 20, Instant.now())));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> repositoryService.generateCodeReview(42L, 7L)
+        );
+
+        assertEquals(HttpStatus.TOO_MANY_REQUESTS, exception.getStatusCode());
+        assertTrue(exception.getReason().contains("Daily AI generation limit reached."));
+        verify(documentationRepository, never()).save(any(Documentation.class));
     }
 
     @Test
@@ -385,5 +463,16 @@ class RepositoryServiceTest {
         zipOutputStream.putNextEntry(zipEntry);
         zipOutputStream.write(content.getBytes(StandardCharsets.UTF_8));
         zipOutputStream.closeEntry();
+    }
+
+    private User quotaUser(Long id, int aiGenerationCount, Instant windowStart) {
+        return User.builder()
+                .id(id)
+                .email("dev@gmail.com")
+                .name("Dev")
+                .username("dev")
+                .aiGenerationCount(aiGenerationCount)
+                .aiGenerationWindowStart(windowStart)
+                .build();
     }
 }

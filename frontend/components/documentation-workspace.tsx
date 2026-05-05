@@ -28,6 +28,10 @@ const generationOptions = [
     description: "Module-by-module breakdown",
     title: "Module Docs",
   },
+  {
+    description: "Bugs, risks, and suggested fixes",
+    title: "Code Review",
+  },
 ] as const;
 
 export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProps) {
@@ -153,16 +157,18 @@ export function DocumentationWorkspace({ documents }: DocumentationWorkspaceProp
     setGeneratingTitle(title);
     setErrorMessage(null);
     try {
-      const response = await axiosInstance.post<RepoDocument>(
-        `/repositories/${selectedRepositoryId}/documentation`,
-        { documentationType: title },
-      );
+      const response = title === "Code Review"
+        ? await axiosInstance.post<RepoDocument>(`/repositories/${selectedRepositoryId}/code-review`)
+        : await axiosInstance.post<RepoDocument>(
+            `/repositories/${selectedRepositoryId}/documentation`,
+            { documentationType: title },
+          );
       setRepositoryDocs((current) => [response.data, ...current]);
       setSelectedDocId(response.data.id);
       addNotification({
         href: `/repositories/${selectedRepositoryId}?tab=docs&doc=${response.data.id}`,
         message: `${response.data.title} is ready to view for ${notificationRepositoryName}.`,
-        title: "Documentation generated",
+        title: title === "Code Review" ? "Code review generated" : "Documentation generated",
         type: "documentation",
       });
       setGenerationMessage(`${title} generated.`);
