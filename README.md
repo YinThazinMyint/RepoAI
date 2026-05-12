@@ -74,7 +74,7 @@ app.jwt.expiration-ms=86400000
 
 openai.api.key=your_openai_api_key
 openai.base-url=https://api.openai.com/v1
-openai.model=gpt-4.1
+openai.model=gpt-4
 openai.embedding-model=text-embedding-3-small
 
 rag.chunk.max-chars=3000
